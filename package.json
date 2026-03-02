@@ -9,11 +9,16 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@upstash/ratelimit": "^2.0.8",
+    "@upstash/redis": "^1.36.3",
+    "cloudinary": "^2.9.0",
+    "formidable": "^3.5.4",
     "next": "16.1.6",
     "react": "19.2.3",
     "react-dom": "19.2.3"
   },
   "devDependencies": {
+    "@types/formidable": "^3.4.7",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
