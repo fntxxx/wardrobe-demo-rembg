@@ -7,6 +7,7 @@ import { Ratelimit } from "@upstash/ratelimit";
 
 export const config = {
     api: { bodyParser: false },
+    regions: ["hkg1"],
 };
 
 // ---- Config ----
@@ -131,9 +132,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         }
 
         const formData = new FormData();
-        formData.append("file", new Blob([buf]), file.originalFilename ?? "upload.jpg");
+        const mime = (file as any).mimetype || "image/jpeg";
+        formData.append(
+            "file",
+            new Blob([buf], { type: mime }),
+            file.originalFilename ?? "upload.jpg"
+        );
 
-        const url = `${REMBG_BASE}/remove-bg?max_side=${DEFAULT_MAX_SIDE}`;
+        const url = `${REMBG_BASE}/remove-bg?max_side=768&quality=fast`;
         const r = await fetchWithRetry(url, { method: "POST", body: formData });
 
         if (!r.ok) {
