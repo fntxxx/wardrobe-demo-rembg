@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useAttributes } from "@/lib/useAttributes";
 
 type AttributeItemProps = {
@@ -6,6 +6,8 @@ type AttributeItemProps = {
   value?: string;
   score?: number;
 };
+
+type ProcessStage = "idle" | "removing" | "predicting";
 
 function getConfidenceLevel(score?: number) {
   if (typeof score !== "number") return "未知";
@@ -143,7 +145,7 @@ function useIsMobile(breakpoint = 860) {
 export default function HomePage() {
   const isMobile = useIsMobile();
 
-  const [busy, setBusy] = useState(false);
+  const [stage, setStage] = useState<ProcessStage>("idle");
   const [error, setError] = useState<string | null>(null);
 
   const [originalUrl, setOriginalUrl] = useState<string | null>(null);
@@ -152,13 +154,9 @@ export default function HomePage() {
   const [originalFile, setOriginalFile] = useState<File | null>(null);
   const [removedBlob, setRemovedBlob] = useState<Blob | null>(null);
 
-  const {
-    attributes,
-    loading,
-    error: attrError,
-    predict,
-    setAttributes,
-  } = useAttributes();
+  const { attributes, error: attrError, predict, setAttributes } = useAttributes();
+
+  const isBusy = stage !== "idle";
 
   useEffect(() => {
     return () => {
@@ -167,96 +165,94 @@ export default function HomePage() {
     };
   }, [originalUrl, removedUrl]);
 
-  const isPredictDisabled = useMemo(() => {
-    return busy || loading || !originalFile || !removedBlob;
-  }, [busy, loading, originalFile, removedBlob]);
+  function getStageText() {
+    if (stage === "removing") return "去背中...";
+    if (stage === "predicting") return "辨識中...";
+    return "上傳圖片後會自動去背並辨識";
+  }
+
+  async function runAutoPipeline(picked: File) {
+    const formData = new FormData();
+    formData.append("file", picked);
+
+    setStage("removing");
+
+    const removeRes = await fetch("/api/remove-bg", {
+      method: "POST",
+      body: formData,
+      headers: {
+        "x-api-key": process.env.NEXT_PUBLIC_INTERNAL_API_KEY ?? "",
+      },
+    });
+
+    if (!removeRes.ok) {
+      const text = await removeRes.text().catch(() => "");
+      throw new Error(`去背失敗：${removeRes.status}${text ? `\n${text}` : ""}`);
+    }
+
+    const blob = await removeRes.blob();
+    setRemovedBlob(blob);
+
+    const outputUrl = URL.createObjectURL(blob);
+    setRemovedUrl(outputUrl);
+
+    setStage("predicting");
+
+    const originalResult = await predict(picked, picked.name, {
+      silent: true,
+    });
+
+    const removedResult = await predict(blob, "removed.png", {
+      silent: true,
+    });
+
+    if (!originalResult || !removedResult) {
+      throw new Error("辨識結果為空");
+    }
+
+    setAttributes({
+      ...originalResult,
+      colorTone: removedResult.colorTone ?? originalResult.colorTone,
+      scores: {
+        category: originalResult.scores?.category ?? 0,
+        occasion: originalResult.scores?.occasion ?? 0,
+        colorTone:
+          removedResult.scores?.colorTone ??
+          originalResult.scores?.colorTone ??
+          0,
+        season: originalResult.scores?.season ?? 0,
+      },
+    });
+  }
 
   async function onPickFile(e: React.ChangeEvent<HTMLInputElement>) {
     const picked = e.target.files?.[0];
     if (!picked) return;
 
+    setError(null);
+    setAttributes(null);
     setOriginalFile(picked);
     setRemovedBlob(null);
-    setBusy(true);
-    setError(null);
 
     if (originalUrl) URL.revokeObjectURL(originalUrl);
     if (removedUrl) URL.revokeObjectURL(removedUrl);
 
     setOriginalUrl(null);
     setRemovedUrl(null);
-    setAttributes(null);
 
-    const ori = URL.createObjectURL(picked);
-    setOriginalUrl(ori);
-
-    const formData = new FormData();
-    formData.append("file", picked);
+    const nextOriginalUrl = URL.createObjectURL(picked);
+    setOriginalUrl(nextOriginalUrl);
 
     try {
-      const r = await fetch("/api/remove-bg", {
-        method: "POST",
-        body: formData,
-        headers: {
-          "x-api-key": process.env.NEXT_PUBLIC_INTERNAL_API_KEY ?? "",
-        },
-      });
-
-      if (!r.ok) {
-        const t = await r.text().catch(() => "");
-        throw new Error(`去背失敗：${r.status}${t ? `\n${t}` : ""}`);
-      }
-
-      const blob = await r.blob();
-      setRemovedBlob(blob);
-
-      const out = URL.createObjectURL(blob);
-      setRemovedUrl(out);
+      await runAutoPipeline(picked);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "去背失敗";
-      setError(msg);
+      const message =
+        err instanceof Error ? err.message : "處理失敗";
+      setError(message);
       setRemovedBlob(null);
     } finally {
-      setBusy(false);
+      setStage("idle");
       e.target.value = "";
-    }
-  }
-
-  async function handlePredict() {
-    if (!originalFile || !removedBlob) return;
-
-    setError(null);
-
-    try {
-      const originalResult = await predict(originalFile, originalFile.name, {
-        silent: true,
-      });
-
-      const removedResult = await predict(removedBlob, "removed.png", {
-        silent: true,
-      });
-
-      if (!originalResult || !removedResult) {
-        throw new Error("辨識結果為空");
-      }
-
-      setAttributes({
-        ...originalResult,
-        colorTone: removedResult.colorTone ?? originalResult.colorTone,
-        scores: {
-          category: originalResult.scores?.category ?? 0,
-          occasion: originalResult.scores?.occasion ?? 0,
-          colorTone:
-            removedResult.scores?.colorTone ??
-            originalResult.scores?.colorTone ??
-            0,
-          season: originalResult.scores?.season ?? 0,
-        },
-      });
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "屬性辨識失敗";
-      setError(msg);
-      console.error("attribute predict failed:", err);
     }
   }
 
@@ -323,8 +319,8 @@ export default function HomePage() {
               maxWidth: 760,
             }}
           >
-            上傳衣物圖片後，系統會先進行去背，再做屬性辨識。
-            類別、場合、季節以原圖判斷，色系則以去背圖判斷，避免背景干擾。
+            上傳衣物圖片後，系統會自動進行去背與屬性辨識。
+            類別、場合、季節使用原圖辨識；色系使用去背圖辨識，避免背景干擾。
           </p>
         </header>
 
@@ -355,20 +351,20 @@ export default function HomePage() {
                 borderRadius: 14,
                 border: "1px solid #d0d5dd",
                 background: "#ffffff",
-                cursor: busy ? "not-allowed" : "pointer",
+                cursor: isBusy ? "not-allowed" : "pointer",
                 fontSize: 14,
                 fontWeight: 700,
                 color: "#344054",
                 boxShadow: "0 1px 2px rgba(16, 24, 40, 0.04)",
-                opacity: busy ? 0.65 : 1,
+                opacity: isBusy ? 0.65 : 1,
               }}
             >
-              <span>選擇圖片</span>
+              <span>{isBusy ? "處理中" : "選擇圖片"}</span>
               <input
                 type="file"
                 accept="image/*"
                 onChange={onPickFile}
-                disabled={busy}
+                disabled={isBusy}
                 style={{ display: "none" }}
               />
             </label>
@@ -376,15 +372,16 @@ export default function HomePage() {
             <div
               style={{
                 fontSize: 14,
-                color: "#667085",
+                color: stage === "idle" ? "#667085" : "#3538cd",
+                fontWeight: stage === "idle" ? 400 : 700,
               }}
             >
-              {busy ? "正在進行去背處理…" : "支援一般衣物照片上傳"}
+              {getStageText()}
             </div>
           </div>
         </section>
 
-        {error && (
+        {(error || attrError) && (
           <div
             style={{
               marginBottom: 20,
@@ -405,7 +402,9 @@ export default function HomePage() {
             >
               發生錯誤
             </div>
-            <div style={{ fontSize: 14, lineHeight: 1.6 }}>{error}</div>
+            <div style={{ fontSize: 14, lineHeight: 1.6 }}>
+              {error || attrError}
+            </div>
           </div>
         )}
 
@@ -572,7 +571,7 @@ export default function HomePage() {
                   fontWeight: 600,
                 }}
               >
-                尚未產生去背結果
+                {stage === "removing" ? "去背中..." : "尚未產生去背結果"}
               </div>
             )}
           </section>
@@ -616,49 +615,31 @@ export default function HomePage() {
                   lineHeight: 1.6,
                 }}
               >
-                類別、場合、季節使用原圖辨識；色系使用去背圖辨識。
+                上傳後會自動完成去背與辨識，不需要再手動按按鈕。
               </div>
             </div>
 
-            <button
-              type="button"
-              onClick={handlePredict}
-              disabled={isPredictDisabled}
+            <div
               style={{
-                border: "1px solid #111827",
-                background: isPredictDisabled ? "#e5e7eb" : "#111827",
-                color: isPredictDisabled ? "#98a2b3" : "#ffffff",
+                border: "1px solid #d0d5dd",
+                background: isBusy ? "#111827" : "#f8fafc",
+                color: isBusy ? "#ffffff" : "#667085",
                 borderRadius: 14,
                 padding: "12px 18px",
                 fontSize: 14,
                 fontWeight: 800,
-                cursor: isPredictDisabled ? "not-allowed" : "pointer",
-                boxShadow: isPredictDisabled
-                  ? "none"
-                  : "0 8px 20px rgba(17, 24, 39, 0.18)",
-                transition: "all 0.2s ease",
+                boxShadow: isBusy
+                  ? "0 8px 20px rgba(17, 24, 39, 0.18)"
+                  : "none",
               }}
             >
-              {loading ? "辨識中…" : "辨識屬性"}
-            </button>
-          </div>
-
-          {attrError && (
-            <div
-              style={{
-                marginBottom: 14,
-                background: "#fef3f2",
-                border: "1px solid #fecdca",
-                color: "#912018",
-                padding: 12,
-                borderRadius: 14,
-                fontSize: 14,
-                lineHeight: 1.6,
-              }}
-            >
-              辨識失敗：{attrError}
+              {stage === "removing"
+                ? "去背中..."
+                : stage === "predicting"
+                  ? "辨識中..."
+                  : "等待上傳"}
             </div>
-          )}
+          </div>
 
           {attributes ? (
             <>
@@ -719,7 +700,11 @@ export default function HomePage() {
                 fontWeight: 600,
               }}
             >
-              先完成去背，再按下「辨識屬性」查看結果
+              {stage === "removing"
+                ? "去背中..."
+                : stage === "predicting"
+                  ? "辨識中..."
+                  : "上傳圖片後會自動開始處理"}
             </div>
           )}
         </section>
