@@ -1,5 +1,4 @@
-// pages/index.tsx
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useAttributes } from "@/lib/useAttributes";
 
 type AttributeItemProps = {
@@ -125,7 +124,25 @@ function AttributeItem({ label, value, score }: AttributeItemProps) {
   );
 }
 
+function useIsMobile(breakpoint = 860) {
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const update = () => {
+      setIsMobile(window.innerWidth <= breakpoint);
+    };
+
+    update();
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
+  }, [breakpoint]);
+
+  return isMobile;
+}
+
 export default function HomePage() {
+  const isMobile = useIsMobile();
+
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -150,13 +167,16 @@ export default function HomePage() {
     };
   }, [originalUrl, removedUrl]);
 
+  const isPredictDisabled = useMemo(() => {
+    return busy || loading || !originalFile || !removedBlob;
+  }, [busy, loading, originalFile, removedBlob]);
+
   async function onPickFile(e: React.ChangeEvent<HTMLInputElement>) {
     const picked = e.target.files?.[0];
     if (!picked) return;
 
     setOriginalFile(picked);
     setRemovedBlob(null);
-
     setBusy(true);
     setError(null);
 
@@ -203,9 +223,11 @@ export default function HomePage() {
   }
 
   async function handlePredict() {
-    try {
-      if (!originalFile || !removedBlob) return;
+    if (!originalFile || !removedBlob) return;
 
+    setError(null);
+
+    try {
       const originalResult = await predict(originalFile, originalFile.name, {
         silent: true,
       });
@@ -214,11 +236,13 @@ export default function HomePage() {
         silent: true,
       });
 
-      if (!originalResult || !removedResult) return;
+      if (!originalResult || !removedResult) {
+        throw new Error("辨識結果為空");
+      }
 
       setAttributes({
         ...originalResult,
-        colorTone: removedResult.colorTone,
+        colorTone: removedResult.colorTone ?? originalResult.colorTone,
         scores: {
           category: originalResult.scores?.category ?? 0,
           occasion: originalResult.scores?.occasion ?? 0,
@@ -230,11 +254,11 @@ export default function HomePage() {
         },
       });
     } catch (err) {
+      const msg = err instanceof Error ? err.message : "屬性辨識失敗";
+      setError(msg);
       console.error("attribute predict failed:", err);
     }
   }
-
-  const isPredictDisabled = busy || loading || !originalFile || !removedBlob;
 
   return (
     <main
@@ -379,7 +403,7 @@ export default function HomePage() {
                 marginBottom: 6,
               }}
             >
-              去背失敗
+              發生錯誤
             </div>
             <div style={{ fontSize: 14, lineHeight: 1.6 }}>{error}</div>
           </div>
@@ -388,7 +412,7 @@ export default function HomePage() {
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "1fr 1fr",
+            gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr",
             gap: 20,
           }}
         >
@@ -641,7 +665,7 @@ export default function HomePage() {
               <div
                 style={{
                   display: "grid",
-                  gridTemplateColumns: "1fr 1fr",
+                  gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr",
                   gap: 16,
                 }}
               >
@@ -700,14 +724,6 @@ export default function HomePage() {
           )}
         </section>
       </div>
-
-      <style jsx>{`
-        @media (max-width: 860px) {
-          div[style*="grid-template-columns: 1fr 1fr"] {
-            grid-template-columns: 1fr !important;
-          }
-        }
-      `}</style>
     </main>
   );
 }
