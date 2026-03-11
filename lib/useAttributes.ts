@@ -11,6 +11,7 @@ export type AttributeResult = {
     category: string;
     occasion: string;
     colorTone: string;
+    colorTags: string[];
     season: string;
     scores: AttributeScores;
 };
@@ -20,9 +21,13 @@ type PredictOptions = {
 };
 
 type RawApiResponse = {
+    ok?: boolean;
+    reason?: string;
+
     category?: string;
     occasion?: string;
     colorTone?: string;
+    colorTags?: string[];
     season?: string;
 
     style?: string;
@@ -66,6 +71,26 @@ function mapSeasonLabel(season?: string): string {
     }
 }
 
+function fallbackColorToneToUiTags(colorTone?: string): string[] {
+    if (!colorTone) return [];
+
+    const map: Record<string, string[]> = {
+        白色系: ["淺米白"],
+        黑色系: ["深灰黑"],
+        灰色系: ["中性灰"],
+        米色系: ["淺米白"],
+        卡其色系: ["大地棕"],
+        咖啡色系: ["大地棕"],
+        紅色系: ["暖橘紅"],
+        綠色系: ["自然綠"],
+        藍色系: ["清爽藍"],
+        紫色系: ["優雅紫"],
+        花紋圖案: ["花紋圖案"],
+    };
+
+    return map[colorTone] ?? [];
+}
+
 function normalizeScores(data: RawApiResponse): AttributeScores {
     const fallbackScore = typeof data.score === "number" ? data.score : 0;
 
@@ -82,6 +107,10 @@ function normalizeResult(data: RawApiResponse): AttributeResult {
         category: data.category || "-",
         occasion: data.occasion || mapStyleToOccasion(data.style),
         colorTone: data.colorTone || "-",
+        colorTags:
+            Array.isArray(data.colorTags) && data.colorTags.length > 0
+                ? data.colorTags
+                : fallbackColorToneToUiTags(data.colorTone),
         season: mapSeasonLabel(data.season),
         scores: normalizeScores(data),
     };
@@ -124,6 +153,13 @@ export function useAttributes() {
                 json = JSON.parse(text);
             } catch {
                 throw new Error("屬性服務回傳格式不是有效 JSON");
+            }
+
+            if (json.ok === false) {
+                if (json.reason === "not_fashion_image") {
+                    throw new Error("這不是衣物圖片，請重新上傳單件衣物照片。");
+                }
+                throw new Error("屬性辨識失敗");
             }
 
             const normalized = normalizeResult(json);

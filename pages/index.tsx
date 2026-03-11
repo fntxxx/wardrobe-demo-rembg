@@ -7,6 +7,13 @@ type AttributeItemProps = {
   score?: number;
 };
 
+type ColorTagListProps = {
+  label: string;
+  tags?: string[];
+  rawTone?: string;
+  score?: number;
+};
+
 type ProcessStage = "idle" | "removing" | "predicting";
 
 function getConfidenceLevel(score?: number) {
@@ -46,6 +53,97 @@ function getConfidenceStyle(score?: number): React.CSSProperties {
     color: "#b42318",
     border: "1px solid #fecdca",
   };
+}
+
+function getColorTagStyle(tag: string): React.CSSProperties {
+  const base: React.CSSProperties = {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: "7px 12px",
+    borderRadius: 999,
+    fontSize: 13,
+    fontWeight: 700,
+    lineHeight: 1.2,
+    border: "1px solid #d0d5dd",
+    background: "#ffffff",
+    color: "#344054",
+  };
+
+  switch (tag) {
+    case "淺米白":
+      return {
+        ...base,
+        background: "#fffdf7",
+        border: "1px solid #ece7da",
+        color: "#6b5f45",
+      };
+    case "深灰黑":
+      return {
+        ...base,
+        background: "#1f242f",
+        border: "1px solid #1f242f",
+        color: "#ffffff",
+      };
+    case "中性灰":
+      return {
+        ...base,
+        background: "#f2f4f7",
+        border: "1px solid #d0d5dd",
+        color: "#475467",
+      };
+    case "大地棕":
+      return {
+        ...base,
+        background: "#f6efe7",
+        border: "1px solid #e4d7c7",
+        color: "#8b5e34",
+      };
+    case "暖橘紅":
+      return {
+        ...base,
+        background: "#fff1eb",
+        border: "1px solid #f7c9b8",
+        color: "#c2410c",
+      };
+    case "粉嫩玫瑰":
+      return {
+        ...base,
+        background: "#fff1f3",
+        border: "1px solid #f8c7d0",
+        color: "#c14d74",
+      };
+    case "自然綠":
+      return {
+        ...base,
+        background: "#eefbf3",
+        border: "1px solid #b7e4c7",
+        color: "#1f7a4d",
+      };
+    case "清爽藍":
+      return {
+        ...base,
+        background: "#eef6ff",
+        border: "1px solid #bfd6ff",
+        color: "#245bba",
+      };
+    case "優雅紫":
+      return {
+        ...base,
+        background: "#f5f0ff",
+        border: "1px solid #d7c7ff",
+        color: "#6941c6",
+      };
+    case "花紋圖案":
+      return {
+        ...base,
+        background: "#f8f9fc",
+        border: "1px solid #d0d5dd",
+        color: "#344054",
+      };
+    default:
+      return base;
+  }
 }
 
 function AttributeItem({ label, value, score }: AttributeItemProps) {
@@ -120,6 +218,101 @@ function AttributeItem({ label, value, score }: AttributeItemProps) {
         信心分數：
         <span style={{ fontWeight: 700, color: "#344054" }}>
           {typeof score === "number" ? ` ${Math.round(score * 100)}%` : " —"}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function ColorTagList({ label, tags = [], rawTone, score }: ColorTagListProps) {
+  return (
+    <div
+      style={{
+        border: "1px solid #e5e7eb",
+        borderRadius: 16,
+        background: "#ffffff",
+        padding: 16,
+        boxShadow: "0 1px 2px rgba(16, 24, 40, 0.04)",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 12,
+          marginBottom: 12,
+        }}
+      >
+        <span
+          style={{
+            fontSize: 13,
+            color: "#667085",
+            fontWeight: 600,
+            letterSpacing: 0.2,
+          }}
+        >
+          {label}
+        </span>
+
+        <span
+          style={{
+            ...getConfidenceStyle(score),
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            minWidth: 40,
+            padding: "4px 10px",
+            borderRadius: 999,
+            fontSize: 12,
+            fontWeight: 700,
+            lineHeight: 1.2,
+            whiteSpace: "nowrap",
+          }}
+        >
+          {getConfidenceLevel(score)}
+        </span>
+      </div>
+
+      {tags.length > 0 ? (
+        <div
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            gap: 8,
+            minHeight: 34,
+          }}
+        >
+          {tags.map((tag) => (
+            <span key={tag} style={getColorTagStyle(tag)}>
+              {tag}
+            </span>
+          ))}
+        </div>
+      ) : (
+        <div
+          style={{
+            fontSize: 20,
+            fontWeight: 800,
+            color: "#101828",
+            lineHeight: 1.35,
+            minHeight: 28,
+          }}
+        >
+          —
+        </div>
+      )}
+
+      <div
+        style={{
+          marginTop: 10,
+          fontSize: 13,
+          color: "#667085",
+        }}
+      >
+        基礎色系：
+        <span style={{ fontWeight: 700, color: "#344054" }}>
+          {rawTone ? ` ${rawTone}` : " —"}
         </span>
       </div>
     </div>
@@ -213,6 +406,10 @@ export default function HomePage() {
     setAttributes({
       ...originalResult,
       colorTone: removedResult.colorTone ?? originalResult.colorTone,
+      colorTags:
+        removedResult.colorTags?.length
+          ? removedResult.colorTags
+          : originalResult.colorTags ?? [],
       scores: {
         category: originalResult.scores?.category ?? 0,
         occasion: originalResult.scores?.occasion ?? 0,
@@ -660,9 +857,10 @@ export default function HomePage() {
                   value={attributes.occasion}
                   score={attributes.scores?.occasion}
                 />
-                <AttributeItem
+                <ColorTagList
                   label="色系"
-                  value={attributes.colorTone}
+                  tags={attributes.colorTags}
+                  rawTone={attributes.colorTone}
                   score={attributes.scores?.colorTone}
                 />
                 <AttributeItem
@@ -684,7 +882,7 @@ export default function HomePage() {
                   color: "#667085",
                 }}
               >
-                場合與季節屬於推測結果，若信心較低，建議視為參考資訊。
+                場合與季節屬於推測結果，若信心較低，建議視為參考資訊。色系區塊優先顯示正式產品用色票標籤，並保留基礎色系作為除錯與 fallback 資訊。
               </div>
             </>
           ) : (
