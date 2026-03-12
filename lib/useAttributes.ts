@@ -1,4 +1,30 @@
 import { useState } from "react";
+import type {
+    CategoryValue,
+    OccasionValue,
+    SeasonValue,
+    ColorValue,
+} from "@/lib/wardrobeOptions";
+
+export type CandidateItem<T extends string = string> = {
+    value: T;
+    label: string;
+    score: number;
+};
+
+export type SingleSelectField<T extends string = string> = {
+    selected: T;
+    label?: string;
+    score?: number;
+    candidates: CandidateItem<T>[];
+};
+
+export type MultiSelectField<T extends string = string> = {
+    selected: T[];
+    candidates: CandidateItem<T>[];
+    threshold?: number;
+    maxSelected?: number;
+};
 
 export type AttributeScores = {
     category: number;
@@ -8,11 +34,17 @@ export type AttributeScores = {
 };
 
 export type AttributeResult = {
-    category: string;
-    occasion: string;
-    colorTone: string;
-    colorTags: string[];
-    season: string;
+    legacy: {
+        category: string;
+        occasion: string;
+        colorTone: string;
+        colorTags: string[];
+        season: string;
+    };
+    categorySelection: SingleSelectField<CategoryValue>;
+    occasions: MultiSelectField<OccasionValue>;
+    seasons: MultiSelectField<SeasonValue>;
+    colors: MultiSelectField<ColorValue>;
     scores: AttributeScores;
 };
 
@@ -25,11 +57,9 @@ type RawApiResponse = {
     reason?: string;
 
     category?: string;
-    occasion?: string;
     colorTone?: string;
     colorTags?: string[];
     season?: string;
-
     style?: string;
     score?: number;
 
@@ -39,6 +69,34 @@ type RawApiResponse = {
         colorTone: number;
         season: number;
     }>;
+
+    categorySelection?: {
+        selected?: CategoryValue;
+        label?: string;
+        score?: number;
+        candidates?: CandidateItem<CategoryValue>[];
+    };
+
+    occasions?: {
+        selected?: OccasionValue[];
+        candidates?: CandidateItem<OccasionValue>[];
+        threshold?: number;
+        maxSelected?: number;
+    };
+
+    seasons?: {
+        selected?: SeasonValue[];
+        candidates?: CandidateItem<SeasonValue>[];
+        threshold?: number;
+        maxSelected?: number;
+    };
+
+    colors?: {
+        selected?: ColorValue[];
+        candidates?: CandidateItem<ColorValue>[];
+        threshold?: number;
+        maxSelected?: number;
+    };
 };
 
 function mapStyleToOccasion(style?: string): string {
@@ -71,26 +129,6 @@ function mapSeasonLabel(season?: string): string {
     }
 }
 
-function fallbackColorToneToUiTags(colorTone?: string): string[] {
-    if (!colorTone) return [];
-
-    const map: Record<string, string[]> = {
-        白色系: ["淺米白"],
-        黑色系: ["深灰黑"],
-        灰色系: ["中性灰"],
-        米色系: ["淺米白"],
-        卡其色系: ["大地棕"],
-        咖啡色系: ["大地棕"],
-        紅色系: ["暖橘紅"],
-        綠色系: ["自然綠"],
-        藍色系: ["清爽藍"],
-        紫色系: ["優雅紫"],
-        花紋圖案: ["花紋圖案"],
-    };
-
-    return map[colorTone] ?? [];
-}
-
 function normalizeScores(data: RawApiResponse): AttributeScores {
     const fallbackScore = typeof data.score === "number" ? data.score : 0;
 
@@ -104,14 +142,37 @@ function normalizeScores(data: RawApiResponse): AttributeScores {
 
 function normalizeResult(data: RawApiResponse): AttributeResult {
     return {
-        category: data.category || "-",
-        occasion: data.occasion || mapStyleToOccasion(data.style),
-        colorTone: data.colorTone || "-",
-        colorTags:
-            Array.isArray(data.colorTags) && data.colorTags.length > 0
-                ? data.colorTags
-                : fallbackColorToneToUiTags(data.colorTone),
-        season: mapSeasonLabel(data.season),
+        legacy: {
+            category: data.category || "-",
+            occasion: mapStyleToOccasion(data.style),
+            colorTone: data.colorTone || "-",
+            colorTags: Array.isArray(data.colorTags) ? data.colorTags : [],
+            season: mapSeasonLabel(data.season),
+        },
+        categorySelection: {
+            selected: data.categorySelection?.selected || "top",
+            label: data.categorySelection?.label || "上衣",
+            score: data.categorySelection?.score ?? 0,
+            candidates: data.categorySelection?.candidates ?? [],
+        },
+        occasions: {
+            selected: data.occasions?.selected ?? [],
+            candidates: data.occasions?.candidates ?? [],
+            threshold: data.occasions?.threshold ?? 0.62,
+            maxSelected: data.occasions?.maxSelected ?? 2,
+        },
+        seasons: {
+            selected: data.seasons?.selected ?? [],
+            candidates: data.seasons?.candidates ?? [],
+            threshold: data.seasons?.threshold ?? 0.58,
+            maxSelected: data.seasons?.maxSelected ?? 2,
+        },
+        colors: {
+            selected: data.colors?.selected ?? [],
+            candidates: data.colors?.candidates ?? [],
+            threshold: data.colors?.threshold ?? 0.58,
+            maxSelected: data.colors?.maxSelected ?? 2,
+        },
         scores: normalizeScores(data),
     };
 }
@@ -157,7 +218,7 @@ export function useAttributes() {
 
             if (json.ok === false) {
                 if (json.reason === "not_fashion_image") {
-                    throw new Error("這不是衣物圖片，請重新上傳單件衣物照片。");
+                    throw new Error("這不是符合規則的衣物圖片，請重新上傳單件衣物照片。");
                 }
                 throw new Error("屬性辨識失敗");
             }
@@ -170,8 +231,7 @@ export function useAttributes() {
 
             return normalized;
         } catch (err) {
-            const message =
-                err instanceof Error ? err.message : "屬性辨識失敗";
+            const message = err instanceof Error ? err.message : "屬性辨識失敗";
 
             if (!silent) {
                 setError(message);
