@@ -1,0 +1,34 @@
+name: Warmup Services
+
+on:
+    schedule:
+        - cron: "*/15 * * * *"
+    workflow_dispatch:
+
+jobs:
+    warmup:
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+
+        steps:
+            - name: Ping rembg warmup
+              run: |
+                  curl \
+                    --fail \
+                    --silent \
+                    --show-error \
+                    --retry 2 \
+                    --retry-delay 5 \
+                    --max-time 120 \
+                    "${{ secrets.REMBG_WARMUP_URL }}"
+
+            - name: Ping fashion attr warmup
+              run: |
+                  curl \
+                    --fail \
+                    --silent \
+                    --show-error \
+                    --retry 2 \
+                    --retry-delay 5 \
+                    --max-time 120 \
+                    "${{ secrets.ATTR_WARMUP_URL }}"
