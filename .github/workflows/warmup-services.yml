@@ -2,13 +2,16 @@ name: Warmup Services
 
 on:
     schedule:
-        - cron: "*/15 * * * *"
+        - cron: "*/8 * * * *"
     workflow_dispatch:
 
 jobs:
     warmup:
         runs-on: ubuntu-latest
         timeout-minutes: 10
+        env:
+            REMBG_WARMUP_URL: ${{ secrets.REMBG_WARMUP_URL }}
+            ATTR_WARMUP_URL: ${{ secrets.ATTR_WARMUP_URL }}
 
         steps:
             - name: Ping rembg warmup
@@ -17,10 +20,11 @@ jobs:
                     --fail \
                     --silent \
                     --show-error \
-                    --retry 2 \
+                    --retry 3 \
                     --retry-delay 5 \
+                    --retry-max-time 40 \
                     --max-time 120 \
-                    "${{ secrets.REMBG_WARMUP_URL }}"
+                    "$REMBG_WARMUP_URL"
 
             - name: Ping fashion attr warmup
               run: |
@@ -28,7 +32,8 @@ jobs:
                     --fail \
                     --silent \
                     --show-error \
-                    --retry 2 \
+                    --retry 3 \
                     --retry-delay 5 \
+                    --retry-max-time 40 \
                     --max-time 120 \
-                    "${{ secrets.ATTR_WARMUP_URL }}"
+                    "$ATTR_WARMUP_URL"
