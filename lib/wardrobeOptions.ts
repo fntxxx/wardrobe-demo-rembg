@@ -22,16 +22,16 @@ export const SEASON_OPTIONS = [
 ] as const;
 
 export const COLOR_OPTIONS = [
-    { value: "light_beige", label: "淺米白", swatches: ["#F3F0EA", "#EEE8DE", "#E2DBCF", "#D7CEC0"] },
-    { value: "dark_gray_black", label: "深灰黑", swatches: ["#1B1B1D", "#343438", "#56565A", "#78787B"] },
-    { value: "neutral_gray", label: "中性灰", swatches: ["#A5A5A8", "#B6B7BB", "#C7C8CC", "#D9DADD"] },
-    { value: "earth_brown", label: "大地棕", swatches: ["#996A3E", "#B2824E", "#C5A476", "#D1C0A3"] },
-    { value: "warm_orange_red", label: "暖橘紅", swatches: ["#C83C2E", "#EB5441", "#E6851F", "#F09D0C"] },
-    { value: "rose_pink", label: "粉嫩玫瑰", swatches: ["#EFC3C7", "#EEA7AF", "#E08084", "#C0408A"] },
-    { value: "natural_green", label: "自然綠", swatches: ["#4F835B", "#6BA06B", "#87B487", "#A2C39B"] },
-    { value: "fresh_blue", label: "清爽藍", swatches: ["#224A7B", "#3B75B1", "#5D9ED3", "#95BFE3"] },
-    { value: "elegant_purple", label: "優雅紫", swatches: ["#5C2B7A", "#7C53B0", "#A07BD1", "#C4A7DD"] },
-    { value: "pattern", label: "花紋圖案", swatches: ["#7C7C7C", "#B62E36", "#B78A4A", "#1F1F1F"] },
+    { value: "light_beige", label: "淺米白", swatches: ["#F1F1F1", "#E7E3DD", "#E5E2DD", "#D7D2C8"] },
+    { value: "dark_gray_black", label: "深灰黑", swatches: ["#111214", "#2E2E32", "#59595E", "#7A7A7F"] },
+    { value: "neutral_gray", label: "中性灰", swatches: ["#A7A7AA", "#B9B9BC", "#CDCDD0", "#DDDDDF"] },
+    { value: "earth_brown", label: "大地棕", swatches: ["#9A693F", "#B88D5C", "#CBAE80", "#D6C19E"] },
+    { value: "butter_yellow", label: "奶油黃", swatches: ["#E7D9A4", "#F0E7B5", "#D8B22C", "#EBD98D"] },
+    { value: "warm_orange_red", label: "暖橘紅", swatches: ["#C93A2D", "#EC4A37", "#F38B0F", "#F3AB15"] },
+    { value: "rose_pink", label: "粉桃紅", swatches: ["#E8C1C3", "#E9A3A8", "#E57E7B", "#C1458B"] },
+    { value: "natural_green", label: "自然綠", swatches: ["#588A63", "#75A66F", "#8EB689", "#B8D1B0"] },
+    { value: "fresh_blue", label: "清爽藍", swatches: ["#224A79", "#3778B6", "#5D93C3", "#A9C9E5"] },
+    { value: "elegant_purple", label: "優雅紫", swatches: ["#5C2A78", "#7A52AD", "#A57DCD", "#C4ADDE"] },
 ] as const;
 
 export type CategoryValue = (typeof CATEGORY_OPTIONS)[number]["value"];

@@ -1,3 +1,4 @@
+/* eslint-disable @next/next/no-img-element */
 import { useEffect, useMemo, useState } from "react";
 import { useAttributes, type AttributeResult } from "@/lib/useAttributes";
 import {
@@ -14,11 +15,46 @@ import {
 type ProcessStage = "idle" | "removing" | "predicting";
 
 type FormState = {
+  name: string;
   category: CategoryValue;
   occasions: OccasionValue[];
   seasons: SeasonValue[];
   colors: ColorValue[];
 };
+
+type ApiErrorPayload = {
+  code: string;
+  message: string;
+  details?: unknown;
+};
+
+type RemoveBgSuccessData = {
+  image: {
+    filename: string;
+    mime_type: string;
+    base64: string;
+    width: number;
+    height: number;
+  };
+  model: string;
+  fallback_used: boolean;
+  edge_quality_low_candidate: boolean;
+  metrics: {
+    edge_band_ratio: number;
+    edge_band_mid_ratio: number;
+    edge_band_low_ratio: number;
+  };
+  processing: {
+    max_side: number;
+    quality: string;
+    reject_low_confidence: boolean;
+    reject_edge_quality: boolean;
+  };
+};
+
+type RemoveBgResponse =
+  | { ok: true; data: RemoveBgSuccessData }
+  | { ok: false; error: ApiErrorPayload };
 
 function useIsMobile(breakpoint = 900) {
   const [isMobile, setIsMobile] = useState(false);
@@ -33,18 +69,20 @@ function useIsMobile(breakpoint = 900) {
   return isMobile;
 }
 
-function arrayToggle<T extends string>(
-  current: T[],
-  value: T,
-  maxSelected: number
-) {
+function toggleMultiValue<T extends string>(current: T[], value: T) {
   if (current.includes(value)) {
     return current.filter((item) => item !== value);
   }
-  if (current.length >= maxSelected) {
-    return [...current.slice(1), value];
-  }
+
   return [...current, value];
+}
+
+function toggleSingleValue<T extends string>(current: T[], value: T) {
+  if (current.length === 1 && current[0] === value) {
+    return [];
+  }
+
+  return [value];
 }
 
 function getStageText(stage: ProcessStage) {
@@ -53,18 +91,12 @@ function getStageText(stage: ProcessStage) {
   return "上傳圖片後會自動去背並辨識";
 }
 
-function getChipStyle(active: boolean): React.CSSProperties {
-  return {
-    borderRadius: 999,
-    padding: "10px 16px",
-    border: active ? "1px solid #4b5563" : "1px solid #cbd5e1",
-    background: active ? "#4b5563" : "#ffffff",
-    color: active ? "#ffffff" : "#1f2937",
-    fontSize: 16,
-    fontWeight: 700,
-    cursor: "pointer",
-    transition: "all 0.15s ease",
-  };
+function formatPercent(value: number) {
+  return `${Math.round(value * 100)}%`;
+}
+
+function formatTextList(values: string[]) {
+  return values.length ? values.join("、") : "-";
 }
 
 function SectionTitle({
@@ -86,7 +118,7 @@ function SectionTitle({
   );
 }
 
-function FieldTitle({
+function BlockTitle({
   title,
   helper,
 }: {
@@ -94,12 +126,58 @@ function FieldTitle({
   helper?: string;
 }) {
   return (
-    <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 12 }}>
-      <div style={{ fontSize: 18, fontWeight: 800, color: "#111827" }}>{title}</div>
+    <div
+      style={{
+        display: "flex",
+        alignItems: "baseline",
+        gap: 6,
+        marginBottom: 12,
+      }}
+    >
+      <div style={{ fontSize: 18, fontWeight: 800, color: "#171717", letterSpacing: "0.01em" }}>
+        {title}
+      </div>
       {helper ? (
-        <div style={{ fontSize: 13, color: "#6b7280", fontWeight: 600 }}>{helper}</div>
+        <div style={{ fontSize: 12, fontWeight: 700, color: "#4b5563" }}>{helper}</div>
       ) : null}
     </div>
+  );
+}
+
+function FilterChip({
+  label,
+  active,
+  disabled,
+  onClick,
+}: {
+  label: string;
+  active: boolean;
+  disabled?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      style={{
+        height: 36,
+        padding: "0 14px",
+        borderRadius: 999,
+        border: active ? "1px solid #25324B" : "1px solid #CFCFD4",
+        background: active ? "#25324B" : "#FFFFFF",
+        color: active ? "#FFFFFF" : "#4B5563",
+        fontSize: 15,
+        fontWeight: 700,
+        lineHeight: "36px",
+        cursor: disabled ? "not-allowed" : "pointer",
+        transition: "all 0.15s ease",
+        whiteSpace: "nowrap",
+        opacity: disabled ? 0.55 : 1,
+      }}
+    >
+      {label}
+    </button>
   );
 }
 
@@ -107,66 +185,152 @@ function ColorCard({
   label,
   swatches,
   active,
+  disabled,
   onClick,
 }: {
   label: string;
   swatches: string[];
   active: boolean;
+  disabled?: boolean;
   onClick: () => void;
 }) {
   return (
     <button
       type="button"
+      disabled={disabled}
       onClick={onClick}
+      aria-pressed={active}
       style={{
-        borderRadius: 24,
-        border: active ? "3px solid #8b8f97" : "1px solid #e5e7eb",
-        background: "#ffffff",
-        padding: "14px 16px 12px",
-        cursor: "pointer",
-        textAlign: "center",
-        boxShadow: active ? "0 0 0 2px rgba(139, 143, 151, 0.08)" : "none",
+        position: "relative",
+        border: active ? "3px solid #25324B" : "1px solid transparent",
+        borderRadius: 22,
+        background: "transparent",
+        padding: 0,
+        cursor: disabled ? "not-allowed" : "pointer",
+        opacity: disabled ? 0.55 : 1,
+        transition: "all 0.15s ease",
       }}
     >
-      <div style={{ display: "flex", justifyContent: "center", gap: 8, marginBottom: 10 }}>
-        {swatches.map((swatch, idx) => (
+      <div
+        style={{
+          position: "relative",
+          overflow: "hidden",
+          aspectRatio: "1 / 1.14",
+          borderRadius: 20,
+          background: "#ffffff",
+          display: "grid",
+          gridTemplateColumns: "1fr 1fr",
+          gridTemplateRows: "1fr 1fr",
+        }}
+      >
+        {swatches.slice(0, 4).map((swatch, idx) => (
           <span
             key={`${label}-${idx}`}
             style={{
-              width: 34,
-              height: 34,
-              borderRadius: "50%",
               background: swatch,
-              border: "1px solid rgba(0,0,0,0.06)",
-              display: "inline-block",
+              borderRight: idx % 2 === 0 ? "2px solid rgba(255,255,255,0.72)" : "none",
+              borderBottom: idx < 2 ? "2px solid rgba(255,255,255,0.72)" : "none",
             }}
           />
         ))}
+
+        {active ? (
+          <span
+            style={{
+              position: "absolute",
+              top: 10,
+              right: 10,
+              width: 28,
+              height: 28,
+              borderRadius: "50%",
+              background: "#25324B",
+              color: "#FFFFFF",
+              display: "grid",
+              placeItems: "center",
+              fontSize: 18,
+              fontWeight: 900,
+              lineHeight: 1,
+            }}
+          >
+            ✓
+          </span>
+        ) : null}
+
+        <span
+          style={{
+            position: "absolute",
+            left: "50%",
+            bottom: 10,
+            transform: "translateX(-50%)",
+            minWidth: 54,
+            padding: "6px 11px 5px",
+            borderRadius: 999,
+            background: active ? "rgba(126, 101, 21, 0.92)" : "rgba(118, 118, 118, 0.75)",
+            color: "#FFFFFF",
+            fontSize: 12,
+            fontWeight: 800,
+            lineHeight: 1,
+            whiteSpace: "nowrap",
+          }}
+        >
+          {label}
+        </span>
       </div>
-      <div style={{ fontSize: 16, fontWeight: 700, color: "#1f2937" }}>{label}</div>
     </button>
   );
 }
 
-function CandidateSummary({
-  items,
-}: {
-  items: { label: string; score: number }[];
-}) {
-  if (!items.length) return null;
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
 
-  return (
-    <div style={{ marginTop: 10, fontSize: 13, color: "#6b7280", lineHeight: 1.6 }}>
-      模型候選：
-      <span style={{ fontWeight: 600, color: "#374151" }}>
-        {" "}
-        {items
-          .slice(0, 2)
-          .map((item) => `${item.label} ${Math.round(item.score * 100)}%`)
-          .join("、")}
-      </span>
-    </div>
-  );
+function isRemoveBgResponse(value: unknown): value is RemoveBgResponse {
+  if (!isObject(value) || typeof value.ok !== "boolean") {
+    return false;
+  }
+
+  if (value.ok === false) {
+    return (
+      isObject(value.error) &&
+      typeof value.error.code === "string" &&
+      typeof value.error.message === "string"
+    );
+  }
+
+  return isObject(value.data) && isObject(value.data.image);
+}
+
+async function parseRemoveBgResponse(response: Response): Promise<RemoveBgResponse> {
+  const text = await response.text();
+  let json: unknown;
+
+  try {
+    json = JSON.parse(text);
+  } catch {
+    throw new Error("去背服務回傳格式不是有效 JSON。");
+  }
+
+  if (!isRemoveBgResponse(json)) {
+    throw new Error("去背服務回傳格式不符合預期。");
+  }
+
+  return json;
+}
+
+function decodeBase64Image(image: RemoveBgSuccessData["image"]) {
+  const binary = atob(image.base64);
+  const bytes = new Uint8Array(binary.length);
+
+  for (let i = 0; i < binary.length; i += 1) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+
+  const blob = new Blob([bytes], { type: image.mime_type || "image/png" });
+  return {
+    blob,
+    objectUrl: URL.createObjectURL(blob),
+    filename: image.filename || "removed_bg.png",
+  };
 }
 
 export default function HomePage() {
@@ -180,7 +344,13 @@ export default function HomePage() {
 
   const [removedBlob, setRemovedBlob] = useState<Blob | null>(null);
 
-  const { attributes, error: attrError, predict, setAttributes } = useAttributes();
+  const {
+    attributes,
+    error: attrError,
+    predict,
+    setAttributes,
+    setError: setAttrError,
+  } = useAttributes();
 
   const [formState, setFormState] = useState<FormState | null>(null);
 
@@ -196,6 +366,7 @@ export default function HomePage() {
   useEffect(() => {
     if (!attributes) return;
     setFormState({
+      name: attributes.latest.name,
       category: attributes.categorySelection.selected,
       occasions: attributes.occasions.selected,
       seasons: attributes.seasons.selected,
@@ -217,24 +388,27 @@ export default function HomePage() {
       },
     });
 
-    if (!removeRes.ok) {
-      const text = await removeRes.text().catch(() => "");
-      throw new Error(`去背失敗：${removeRes.status}${text ? `\n${text}` : ""}`);
+    const removePayload = await parseRemoveBgResponse(removeRes);
+
+    if (!removeRes.ok || removePayload.ok === false) {
+      throw new Error(
+        removePayload.ok === false ? removePayload.error.message : "去背失敗。"
+      );
     }
 
-    const blob = await removeRes.blob();
-    setRemovedBlob(blob);
-
-    const outputUrl = URL.createObjectURL(blob);
-    setRemovedUrl(outputUrl);
+    const decodedImage = decodeBase64Image(removePayload.data.image);
+    setRemovedBlob(decodedImage.blob);
+    setRemovedUrl(decodedImage.objectUrl);
 
     setStage("predicting");
 
     const originalResult = await predict(picked, picked.name, { silent: true });
-    const removedResult = await predict(blob, "removed.png", { silent: true });
+    const removedResult = await predict(decodedImage.blob, decodedImage.filename, {
+      silent: true,
+    });
 
     if (!originalResult || !removedResult) {
-      throw new Error("辨識結果為空");
+      throw new Error("辨識結果為空。");
     }
 
     const merged: AttributeResult = {
@@ -244,6 +418,11 @@ export default function HomePage() {
         ...originalResult.legacy,
         colorTone: removedResult.legacy.colorTone,
         colorTags: removedResult.legacy.colorTags,
+      },
+      latest: {
+        ...originalResult.latest,
+        color: removedResult.latest.color,
+        colorLabel: removedResult.latest.colorLabel,
       },
       scores: {
         ...originalResult.scores,
@@ -259,6 +438,7 @@ export default function HomePage() {
     if (!picked) return;
 
     setError(null);
+    setAttrError(null);
     setAttributes(null);
     setFormState(null);
     setRemovedBlob(null);
@@ -278,6 +458,7 @@ export default function HomePage() {
       const message = err instanceof Error ? err.message : "處理失敗";
       setError(message);
       setRemovedBlob(null);
+      setRemovedUrl(null);
     } finally {
       setStage("idle");
       e.target.value = "";
@@ -305,8 +486,8 @@ export default function HomePage() {
     <main
       style={{
         minHeight: "100vh",
-        background: "#f5f5f5",
-        padding: "32px 16px 56px",
+        background: "#F3F4F6",
+        padding: isMobile ? "20px 14px 40px" : "32px 16px 56px",
         color: "#111827",
         fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
       }}
@@ -314,13 +495,13 @@ export default function HomePage() {
       <div style={{ maxWidth: 1200, margin: "0 auto" }}>
         <SectionTitle
           title="衣物屬性辨識 Demo"
-          subtitle="模型會先自動填入類別、場合、季節與色系，之後可由使用者人工修正。類別為單選；場合、季節與色系可多選。"
+          subtitle="模型會先自動填入名稱、類別、場合、季節與色系，之後可由使用者人工修正。"
         />
 
         <section
           style={{
-            background: "#ffffff",
-            border: "1px solid #e5e7eb",
+            background: "#FFFFFF",
+            border: "1px solid #E5E7EB",
             borderRadius: 24,
             padding: 20,
             marginBottom: 24,
@@ -334,8 +515,8 @@ export default function HomePage() {
                 gap: 10,
                 padding: "12px 16px",
                 borderRadius: 14,
-                border: "1px solid #d1d5db",
-                background: "#ffffff",
+                border: "1px solid #D1D5DB",
+                background: "#FFFFFF",
                 cursor: isBusy ? "not-allowed" : "pointer",
                 fontSize: 14,
                 fontWeight: 700,
@@ -355,7 +536,7 @@ export default function HomePage() {
             <div
               style={{
                 fontSize: 14,
-                color: stage === "idle" ? "#6b7280" : "#374151",
+                color: stage === "idle" ? "#6B7280" : "#374151",
                 fontWeight: stage === "idle" ? 500 : 700,
               }}
             >
@@ -368,9 +549,9 @@ export default function HomePage() {
           <div
             style={{
               marginBottom: 20,
-              background: "#fef2f2",
-              border: "1px solid #fecaca",
-              color: "#991b1b",
+              background: "#FEF2F2",
+              border: "1px solid #FECACA",
+              color: "#991B1B",
               padding: 14,
               borderRadius: 16,
               whiteSpace: "pre-wrap",
@@ -391,40 +572,41 @@ export default function HomePage() {
         >
           <section
             style={{
-              background: "#ffffff",
-              border: "1px solid #e5e7eb",
+              background: "#FFFFFF",
+              border: "1px solid #E5E7EB",
               borderRadius: 24,
               padding: 18,
             }}
           >
             <div style={{ fontSize: 18, fontWeight: 800, marginBottom: 10 }}>圖片預覽</div>
 
-            <div style={{ fontSize: 13, color: "#6b7280", marginBottom: 10 }}>原圖</div>
+            <div style={{ fontSize: 13, color: "#6B7280", marginBottom: 10 }}>原圖</div>
             <div
               style={{
                 minHeight: 220,
                 borderRadius: 18,
-                background: "#f8fafc",
-                border: "1px solid #e5e7eb",
+                background: "#F8FAFC",
+                border: "1px solid #E5E7EB",
                 overflow: "hidden",
                 display: "grid",
                 placeItems: "center",
-                marginBottom: 16,
               }}
             >
               {originalUrl ? (
                 <img src={originalUrl} alt="original" style={{ width: "100%", display: "block" }} />
               ) : (
-                <span style={{ color: "#9ca3af", fontWeight: 600 }}>尚未選擇圖片</span>
+                <span style={{ color: "#9CA3AF", fontWeight: 600 }}>尚未選擇圖片</span>
               )}
             </div>
 
-            <div style={{ fontSize: 13, color: "#6b7280", marginBottom: 10 }}>去背圖</div>
+            <div style={{ height: 16 }} />
+
+            <div style={{ fontSize: 13, color: "#6B7280", marginBottom: 10 }}>去背圖</div>
             <div
               style={{
                 minHeight: 220,
                 borderRadius: 18,
-                border: "1px solid #e5e7eb",
+                border: "1px solid #E5E7EB",
                 overflow: "hidden",
                 display: "grid",
                 placeItems: "center",
@@ -437,176 +619,243 @@ export default function HomePage() {
               {removedUrl ? (
                 <img src={removedUrl} alt="removed" style={{ width: "100%", display: "block" }} />
               ) : (
-                <span style={{ color: "#9ca3af", fontWeight: 600 }}>
+                <span style={{ color: "#9CA3AF", fontWeight: 600 }}>
                   {removedBlob ? "處理中..." : "尚未產生去背圖"}
                 </span>
               )}
             </div>
 
             {attributes ? (
-              <div style={{ marginTop: 16, fontSize: 13, color: "#6b7280", lineHeight: 1.7 }}>
-                <div>舊版類別：<b style={{ color: "#374151" }}>{attributes.legacy.category}</b></div>
-                <div>舊版場合：<b style={{ color: "#374151" }}>{attributes.legacy.occasion}</b></div>
-                <div>舊版季節：<b style={{ color: "#374151" }}>{attributes.legacy.season}</b></div>
-                <div>舊版色系：<b style={{ color: "#374151" }}>{attributes.legacy.colorTone}</b></div>
+              <div style={{ marginTop: 16, fontSize: 13, color: "#6B7280", lineHeight: 1.7 }}>
+                <div>
+                  辨識名稱：<b style={{ color: "#374151" }}>{attributes.latest.name}</b>
+                </div>
+                <div>
+                  類別：<b style={{ color: "#374151" }}>{attributes.latest.categoryLabel}</b>
+                </div>
+                <div>
+                  場合：<b style={{ color: "#374151" }}>{attributes.legacy.occasion}</b>
+                </div>
+                <div>
+                  季節：<b style={{ color: "#374151" }}>{attributes.legacy.season}</b>
+                </div>
+                <div>
+                  色系：<b style={{ color: "#374151" }}>{attributes.latest.colorLabel}</b>
+                </div>
+                <div>
+                  總分：<b style={{ color: "#374151" }}>{formatPercent(attributes.latest.score)}</b>
+                </div>
+                <div>
+                  驗證標籤：<b style={{ color: "#374151" }}>{attributes.latest.validation.bestLabel || "-"}</b>
+                  <span style={{ marginLeft: 6 }}>
+                    （valid {formatPercent(attributes.latest.validation.validScore)} / invalid {formatPercent(attributes.latest.validation.invalidScore)}）
+                  </span>
+                </div>
+                <div>
+                  偵測資訊：<b style={{ color: "#374151" }}>{attributes.latest.detected ? attributes.latest.detectedLabel || "已偵測到衣物區域" : "未額外偵測"}</b>
+                </div>
+                {attributes.latest.bbox ? (
+                  <div>
+                    偵測框：<b style={{ color: "#374151" }}>{formatTextList(attributes.latest.bbox.map((value) => String(value)))}</b>
+                  </div>
+                ) : null}
+                <div style={{ marginTop: 10 }}>
+                  類別候選：<b style={{ color: "#374151" }}>{categoryCandidates.slice(0, 2).map((item) => `${item.label} ${formatPercent(item.score)}`).join("、") || "-"}</b>
+                </div>
+                <div>
+                  場合候選：<b style={{ color: "#374151" }}>{occasionCandidates.slice(0, 2).map((item) => `${item.label} ${formatPercent(item.score)}`).join("、") || "-"}</b>
+                </div>
+                <div>
+                  季節候選：<b style={{ color: "#374151" }}>{seasonCandidates.slice(0, 2).map((item) => `${item.label} ${formatPercent(item.score)}`).join("、") || "-"}</b>
+                </div>
+                <div>
+                  色系候選：<b style={{ color: "#374151" }}>{colorCandidates.slice(0, 2).map((item) => `${item.label} ${formatPercent(item.score)}`).join("、") || "-"}</b>
+                </div>
               </div>
             ) : null}
           </section>
 
           <section
             style={{
-              background: "#ffffff",
-              border: "1px solid #e5e7eb",
-              borderRadius: 24,
-              padding: 24,
+              background: "#F3F4F6",
+              borderRadius: 28,
+              padding: isMobile ? "0" : "4px 0 0",
             }}
           >
-            <FieldTitle title="類別" />
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
-              {CATEGORY_OPTIONS.map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  style={getChipStyle(formState?.category === option.value)}
-                  onClick={() =>
-                    setFormState((prev) =>
-                      prev
-                        ? { ...prev, category: option.value }
-                        : {
-                          category: option.value,
-                          occasions: [],
-                          seasons: [],
-                          colors: [],
-                        }
-                    )
-                  }
-                  disabled={!formState}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
-            <CandidateSummary items={categoryCandidates.map((x) => ({ label: x.label, score: x.score }))} />
-
-            <div style={{ height: 22 }} />
-
-            <FieldTitle title="場合" />
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
-              {OCCASION_OPTIONS.map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  style={getChipStyle(Boolean(formState?.occasions.includes(option.value)))}
-                  onClick={() =>
+            <div style={{ maxWidth: isMobile ? 360 : 760 }}>
+              <div style={{ marginBottom: 30 }}>
+                <BlockTitle title="名稱" />
+                <input
+                  type="text"
+                  value={formState?.name ?? ""}
+                  onChange={(event) =>
                     setFormState((prev) =>
                       prev
                         ? {
                           ...prev,
-                          occasions: arrayToggle(
-                            prev.occasions,
-                            option.value,
-                            attributes?.occasions.maxSelected ?? 2
-                          ),
+                          name: event.target.value,
                         }
                         : null
                     )
                   }
+                  placeholder="請輸入名稱"
                   disabled={!formState}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
-            <CandidateSummary items={occasionCandidates.map((x) => ({ label: x.label, score: x.score }))} />
-
-            <div style={{ height: 22 }} />
-
-            <FieldTitle title="季節" />
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
-              {SEASON_OPTIONS.map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  style={getChipStyle(Boolean(formState?.seasons.includes(option.value)))}
-                  onClick={() =>
-                    setFormState((prev) =>
-                      prev
-                        ? {
-                          ...prev,
-                          seasons: arrayToggle(
-                            prev.seasons,
-                            option.value,
-                            attributes?.seasons.maxSelected ?? 2
-                          ),
-                        }
-                        : null
-                    )
-                  }
-                  disabled={!formState}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
-            <CandidateSummary items={seasonCandidates.map((x) => ({ label: x.label, score: x.score }))} />
-
-            <div style={{ height: 22 }} />
-
-            <FieldTitle title="色系" helper="（可多選）" />
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr",
-                gap: 16,
-              }}
-            >
-              {COLOR_OPTIONS.map((option) => (
-                <ColorCard
-                  key={option.value}
-                  label={option.label}
-                  swatches={[...option.swatches]}
-                  active={Boolean(formState?.colors.includes(option.value))}
-                  onClick={() =>
-                    setFormState((prev) =>
-                      prev
-                        ? {
-                          ...prev,
-                          colors: arrayToggle(
-                            prev.colors,
-                            option.value,
-                            attributes?.colors.maxSelected ?? 2
-                          ),
-                        }
-                        : null
-                    )
-                  }
+                  style={{
+                    width: "100%",
+                    height: 48,
+                    borderRadius: 999,
+                    border: "1px solid #DEDEE3",
+                    background: "#FFFFFF",
+                    padding: "0 18px",
+                    fontSize: 16,
+                    fontWeight: 500,
+                    color: "#374151",
+                    outline: "none",
+                    boxShadow: "none",
+                    opacity: formState ? 1 : 0.65,
+                  }}
                 />
-              ))}
-            </div>
-            <CandidateSummary items={colorCandidates.map((x) => ({ label: x.label, score: x.score }))} />
+              </div>
 
-            <div
-              style={{
-                marginTop: 24,
-                padding: 16,
-                borderRadius: 18,
-                background: "#f9fafb",
-                border: "1px solid #e5e7eb",
-              }}
-            >
-              <div style={{ fontSize: 16, fontWeight: 800, marginBottom: 8 }}>目前表單值</div>
-              <pre
+              <div style={{ marginBottom: 30 }}>
+                <BlockTitle title="類別" />
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                  {CATEGORY_OPTIONS.map((option) => (
+                    <FilterChip
+                      key={option.value}
+                      label={option.label}
+                      active={formState?.category === option.value}
+                      disabled={!formState}
+                      onClick={() =>
+                        setFormState((prev) =>
+                          prev
+                            ? { ...prev, category: option.value }
+                            : {
+                              name: "",
+                              category: option.value,
+                              occasions: [],
+                              seasons: [],
+                              colors: [],
+                            }
+                        )
+                      }
+                    />
+                  ))}
+                </div>
+              </div>
+
+              <div style={{ marginBottom: 30 }}>
+                <BlockTitle title="場合" helper="(可多選)" />
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                  {OCCASION_OPTIONS.map((option) => (
+                    <FilterChip
+                      key={option.value}
+                      label={option.label}
+                      active={Boolean(formState?.occasions.includes(option.value))}
+                      disabled={!formState}
+                      onClick={() =>
+                        setFormState((prev) =>
+                          prev
+                            ? {
+                              ...prev,
+                              occasions: toggleMultiValue(
+                                prev.occasions,
+                                option.value
+                              ),
+                            }
+                            : null
+                        )
+                      }
+                    />
+                  ))}
+                </div>
+              </div>
+
+              <div style={{ marginBottom: 30 }}>
+                <BlockTitle title="季節" helper="(可多選)" />
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                  {SEASON_OPTIONS.map((option) => (
+                    <FilterChip
+                      key={option.value}
+                      label={option.label}
+                      active={Boolean(formState?.seasons.includes(option.value))}
+                      disabled={!formState}
+                      onClick={() =>
+                        setFormState((prev) =>
+                          prev
+                            ? {
+                              ...prev,
+                              seasons: toggleMultiValue(
+                                prev.seasons,
+                                option.value
+                              ),
+                            }
+                            : null
+                        )
+                      }
+                    />
+                  ))}
+                </div>
+              </div>
+
+              <div style={{ marginBottom: 12 }}>
+                <BlockTitle title="色系" />
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: isMobile ? "repeat(3, minmax(0, 1fr))" : "repeat(auto-fit, minmax(104px, 1fr))",
+                    gap: 14,
+                    alignItems: "stretch",
+                  }}
+                >
+                  {COLOR_OPTIONS.map((option) => (
+                    <ColorCard
+                      key={option.value}
+                      label={option.label}
+                      swatches={[...option.swatches]}
+                      active={Boolean(formState?.colors.includes(option.value))}
+                      disabled={!formState}
+                      onClick={() =>
+                        setFormState((prev) =>
+                          prev
+                            ? {
+                              ...prev,
+                              colors: toggleSingleValue(
+                                prev.colors,
+                                option.value
+                              ),
+                            }
+                            : null
+                        )
+                      }
+                    />
+                  ))}
+                </div>
+              </div>
+
+              <div
                 style={{
-                  margin: 0,
-                  fontSize: 13,
-                  lineHeight: 1.7,
-                  color: "#374151",
-                  whiteSpace: "pre-wrap",
-                  wordBreak: "break-word",
+                  marginTop: 24,
+                  padding: 16,
+                  borderRadius: 18,
+                  background: "#FFFFFF",
+                  border: "1px solid #E5E7EB",
                 }}
               >
-                {JSON.stringify(formState, null, 2)}
-              </pre>
+                <div style={{ fontSize: 16, fontWeight: 800, marginBottom: 8 }}>目前表單值</div>
+                <pre
+                  style={{
+                    margin: 0,
+                    fontSize: 13,
+                    lineHeight: 1.7,
+                    color: "#374151",
+                    whiteSpace: "pre-wrap",
+                    wordBreak: "break-word",
+                  }}
+                >
+                  {JSON.stringify(formState, null, 2)}
+                </pre>
+              </div>
             </div>
           </section>
         </div>

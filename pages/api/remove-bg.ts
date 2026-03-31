@@ -10,26 +10,53 @@ export const config = {
     regions: ["hkg1"],
 };
 
-// ---- Config ----
+type ApiErrorPayload = {
+    code: string;
+    message: string;
+    details?: unknown;
+};
+
+type ApiEnvelope<T = unknown> =
+    | { ok: true; data: T }
+    | { ok: false; error: ApiErrorPayload };
+
 const REMBG_BASE =
     process.env.REMBG_API_BASE_URL?.replace(/\/+$/, "") ||
     "https://fntxxx-rembg-service.hf.space";
 
-// 固定縮圖上限，避免有人丟超大圖把你打爆
-const DEFAULT_MAX_SIDE = 768;
+function buildProxyError(
+    code: string,
+    message: string,
+    details: unknown = null
+): ApiEnvelope<never> {
+    return {
+        ok: false,
+        error: {
+            code,
+            message,
+            details,
+        },
+    };
+}
 
-// Vercel 上拿真實 IP（若前面有 Proxy/CDN）
+function parseUpstreamJson(text: string): ApiEnvelope | null {
+    try {
+        return JSON.parse(text) as ApiEnvelope;
+    } catch {
+        return null;
+    }
+}
+
 function getClientIp(req: NextApiRequest) {
     const xf = req.headers["x-forwarded-for"];
     const ip = Array.isArray(xf) ? xf[0] : xf?.split(",")[0]?.trim();
     return ip || req.socket.remoteAddress || "unknown";
 }
 
-// ---- Rate limit (Upstash) ----
 const redis = Redis.fromEnv();
 const ratelimit = new Ratelimit({
     redis,
-    limiter: Ratelimit.slidingWindow(10, "60 s"), // 每 IP 每分鐘 10 次
+    limiter: Ratelimit.slidingWindow(10, "60 s"),
     analytics: true,
     prefix: "rl:remove-bg",
 });
@@ -37,9 +64,8 @@ const ratelimit = new Ratelimit({
 function parseForm(req: NextApiRequest): Promise<{ file: File }> {
     const form = formidable({
         multiples: false,
-        maxFileSize: 8 * 1024 * 1024, // 8MB 上限（可調）
+        maxFileSize: 8 * 1024 * 1024,
         filter: ({ mimetype, originalFilename }) => {
-            // 白名單：jpg/png/webp
             const okMime =
                 mimetype === "image/jpeg" ||
                 mimetype === "image/png" ||
@@ -50,113 +76,127 @@ function parseForm(req: NextApiRequest): Promise<{ file: File }> {
     });
 
     return new Promise((resolve, reject) => {
-        form.parse(req, (err: any, _fields: any, files: any) => {
+        form.parse(req, (err, _fields, files) => {
             if (err) return reject(err);
-            const f = files.file;
-            if (!f) return reject(new Error("缺少 file 欄位"));
-            const file = Array.isArray(f) ? f[0] : f;
+            const field = files.file;
+            if (!field) return reject(new Error("缺少 file 欄位"));
+            const file = Array.isArray(field) ? field[0] : field;
             resolve({ file });
         });
     });
 }
 
 function sleep(ms: number) {
-    return new Promise((r) => setTimeout(r, ms));
+    return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function fetchWithRetry(url: string, init: RequestInit) {
-    // HF / 上游偶爾短暫 502/503，做保守重試
     const delays = [0, 800, 1600];
-    let lastStatus: number | null = null;
-    let lastBody = "";
 
-    for (let i = 0; i < delays.length; i++) {
+    for (let i = 0; i < delays.length; i += 1) {
         if (delays[i] > 0) await sleep(delays[i]);
 
         const ac = new AbortController();
-        const timeout = setTimeout(() => ac.abort(), 25_000); // 25 秒 timeout
+        const timeout = setTimeout(() => ac.abort(), 25_000);
+
         try {
-            const r = await fetch(url, { ...init, signal: ac.signal });
+            const response = await fetch(url, { ...init, signal: ac.signal });
             clearTimeout(timeout);
 
-            if (r.ok) return r;
-
-            lastStatus = r.status;
-            lastBody = await r.text().catch(() => "");
-
-            if ((r.status === 502 || r.status === 503) && i < delays.length - 1) {
+            if (
+                (response.status === 502 || response.status === 503) &&
+                i < delays.length - 1
+            ) {
                 continue;
             }
-            return r;
-        } catch (e: any) {
+
+            return response;
+        } catch (error) {
             clearTimeout(timeout);
-            lastBody = String(e?.message ?? e);
-            if (i < delays.length - 1) continue;
-            throw e;
+            if (i < delays.length - 1) {
+                continue;
+            }
+            throw error;
         }
     }
 
-    throw new Error(`upstream failed (status=${lastStatus}): ${lastBody}`);
+    throw new Error("remove-bg upstream failed");
 }
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+export default async function handler(
+    req: NextApiRequest,
+    res: NextApiResponse<ApiEnvelope>
+) {
     if (req.method !== "POST") {
         res.setHeader("Allow", "POST");
-        return res.status(405).end();
+        return res.status(405).json(
+            buildProxyError("method_not_allowed", "僅支援 POST 方法。")
+        );
     }
 
-    // （可選）簡單 API Key：避免被別人隨手拿 endpoint 狂打
     const requiredKey = process.env.INTERNAL_API_KEY;
     if (requiredKey) {
         const got = req.headers["x-api-key"];
         if (got !== requiredKey) {
-            return res.status(401).json({ error: "unauthorized" });
+            return res.status(401).json(
+                buildProxyError("unauthorized", "未授權的請求。")
+            );
         }
     }
 
-    // Rate limit
     const ip = getClientIp(req);
     const rl = await ratelimit.limit(ip);
     res.setHeader("X-RateLimit-Limit", String(rl.limit));
     res.setHeader("X-RateLimit-Remaining", String(rl.remaining));
     if (!rl.success) {
-        return res.status(429).json({ error: "too many requests" });
+        return res.status(429).json(
+            buildProxyError("too_many_requests", "請求次數過多，請稍後再試。")
+        );
     }
 
     try {
         const { file } = await parseForm(req);
-        const buf = await fs.promises.readFile(file.filepath);
+        const buffer = await fs.promises.readFile(file.filepath);
 
-        if (!buf || buf.length === 0) {
-            return res.status(400).json({ error: "empty file" });
+        if (!buffer.length) {
+            return res.status(400).json(
+                buildProxyError("empty_file", "上傳檔案不可為空。")
+            );
         }
 
         const formData = new FormData();
-        const mime = (file as any).mimetype || "image/jpeg";
+        const mimeType = file.mimetype || "application/octet-stream";
         formData.append(
             "file",
-            new Blob([buf], { type: mime }),
-            file.originalFilename ?? "upload.jpg"
+            new Blob([buffer], { type: mimeType }),
+            file.originalFilename || "upload.png"
         );
 
-        const url = `${REMBG_BASE}/remove-bg?max_side=768&quality=fast`;
-        const r = await fetchWithRetry(url, { method: "POST", body: formData });
+        const response = await fetchWithRetry(`${REMBG_BASE}/remove-bg`, {
+            method: "POST",
+            body: formData,
+        });
 
-        if (!r.ok) {
-            const text = await r.text().catch(() => "");
-            return res.status(502).json({
-                error: "rembg upstream failed",
-                status: r.status,
-                detail: text,
-            });
+        const text = await response.text();
+        const payload = parseUpstreamJson(text);
+
+        if (!payload) {
+            return res.status(502).json(
+                buildProxyError(
+                    "invalid_upstream_response",
+                    "去背服務回傳的不是有效 JSON。",
+                    text || null
+                )
+            );
         }
 
-        const out = Buffer.from(await r.arrayBuffer());
-        res.setHeader("Content-Type", "image/png");
-        // 基本的 cache policy（可改成 no-store 也行）
-        res.setHeader("Cache-Control", "no-store");
-        return res.status(200).send(out);
-    } catch (err: any) {
-        return res.status(400).json({ error: err?.message ?? "bad request" });
+        return res.status(response.status).json(payload);
+    } catch (error) {
+        return res.status(400).json(
+            buildProxyError(
+                "bad_request",
+                error instanceof Error ? error.message : "去背請求失敗。"
+            )
+        );
     }
 }
