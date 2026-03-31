@@ -2,12 +2,6 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import formidable, { File } from "formidable";
 import fs from "node:fs";
 
-export const config = {
-    api: {
-        bodyParser: false,
-    },
-};
-
 type ApiErrorPayload = {
     code: string;
     message: string;
@@ -17,6 +11,24 @@ type ApiErrorPayload = {
 type ApiEnvelope<T = unknown> =
     | { ok: true; data: T }
     | { ok: false; error: ApiErrorPayload };
+
+type Base64RequestPayload = {
+    base64: string;
+    filename?: string;
+    mimeType?: string;
+};
+
+type PredictPreviewPayload = {
+    base64: string;
+    filename: string;
+    mimeType: string;
+};
+
+export const config = {
+    api: {
+        bodyParser: false,
+    },
+};
 
 function getFirstFile(file: File | File[] | undefined): File | null {
     if (!file) return null;
@@ -46,6 +58,78 @@ function parseUpstreamJson(text: string): ApiEnvelope | null {
     }
 }
 
+function isObject(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value !== null;
+}
+
+function isBase64RequestPayload(value: unknown): value is Base64RequestPayload {
+    return (
+        isObject(value) &&
+        typeof value.base64 === "string" &&
+        (value.filename === undefined || typeof value.filename === "string") &&
+        (value.mimeType === undefined || typeof value.mimeType === "string")
+    );
+}
+
+function isSuccessEnvelope(payload: ApiEnvelope): payload is { ok: true; data: unknown } {
+    return payload.ok === true;
+}
+
+function withPreview(
+    payload: ApiEnvelope,
+    preview: PredictPreviewPayload | null
+): ApiEnvelope {
+    if (!preview || !isSuccessEnvelope(payload) || !isObject(payload.data)) {
+        return payload;
+    }
+
+    return {
+        ok: true,
+        data: {
+            ...payload.data,
+            preview,
+        },
+    };
+}
+
+async function readJsonBody(req: NextApiRequest): Promise<unknown> {
+    const chunks: Buffer[] = [];
+
+    for await (const chunk of req) {
+        chunks.push(typeof chunk === "string" ? Buffer.from(chunk) : chunk);
+    }
+
+    const raw = Buffer.concat(chunks).toString("utf-8").trim();
+
+    if (!raw) {
+        throw new Error("empty_json_body");
+    }
+
+    return JSON.parse(raw);
+}
+
+function parseMultipartForm(req: NextApiRequest): Promise<{ imageFile: File }> {
+    const form = formidable({ multiples: false });
+
+    return new Promise((resolve, reject) => {
+        form.parse(req, (err, _fields, files) => {
+            if (err) {
+                reject(err);
+                return;
+            }
+
+            const imageFile = getFirstFile(files.image as File | File[] | undefined);
+
+            if (!imageFile) {
+                reject(new Error("missing_image"));
+                return;
+            }
+
+            resolve({ imageFile });
+        });
+    });
+}
+
 export default async function handler(
     req: NextApiRequest,
     res: NextApiResponse<ApiEnvelope>
@@ -66,28 +150,76 @@ export default async function handler(
         );
     }
 
-    const form = formidable({ multiples: false });
+    const contentType = req.headers["content-type"] || "";
+    const isJsonRequest = contentType.includes("application/json");
 
-    form.parse(req, async (err, _fields, files) => {
-        if (err) {
-            return res.status(400).json(
-                buildProxyError("form_parse_failed", "表單解析失敗。", {
-                    cause: err.message,
-                })
-            );
-        }
+    try {
+        let upstreamResponse: Response;
+        let preview: PredictPreviewPayload | null = null;
 
-        const imageFile = getFirstFile(files.image as File | File[] | undefined);
+        if (isJsonRequest) {
+            let jsonBody: unknown;
 
-        if (!imageFile) {
-            return res.status(400).json(
-                buildProxyError("missing_image", "缺少 image 檔案。")
-            );
-        }
+            try {
+                jsonBody = await readJsonBody(req);
+            } catch (error) {
+                if (error instanceof Error && error.message === "empty_json_body") {
+                    return res.status(400).json(
+                        buildProxyError("empty_json_body", "JSON request body 不可為空。")
+                    );
+                }
 
-        try {
+                return res.status(400).json(
+                    buildProxyError("invalid_json_body", "JSON request body 格式錯誤。")
+                );
+            }
+
+            if (!isBase64RequestPayload(jsonBody) || !jsonBody.base64.trim()) {
+                return res.status(400).json(
+                    buildProxyError(
+                        "invalid_request_body",
+                        "辨識請求缺少有效的 base64 欄位。"
+                    )
+                );
+            }
+
+            preview = {
+                base64: jsonBody.base64.trim(),
+                filename: (jsonBody.filename || "image.png").trim() || "image.png",
+                mimeType: (jsonBody.mimeType || "image/png").trim() || "image/png",
+            };
+
+            upstreamResponse = await fetch(apiUrl, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                    base64: preview.base64,
+                    filename: preview.filename,
+                    mimeType: preview.mimeType,
+                }),
+            });
+        } else {
+            let imageFile: File;
+
+            try {
+                ({ imageFile } = await parseMultipartForm(req));
+            } catch (error) {
+                if (error instanceof Error && error.message === "missing_image") {
+                    return res.status(400).json(
+                        buildProxyError("missing_image", "缺少 image 檔案。")
+                    );
+                }
+
+                return res.status(400).json(
+                    buildProxyError("form_parse_failed", "表單解析失敗。", {
+                        cause: error instanceof Error ? error.message : null,
+                    })
+                );
+            }
+
             const fileBuffer = await fs.promises.readFile(imageFile.filepath);
-
             const formData = new FormData();
             const blob = new Blob([fileBuffer], {
                 type: imageFile.mimetype || "application/octet-stream",
@@ -99,33 +231,33 @@ export default async function handler(
                 imageFile.originalFilename || "image.jpg"
             );
 
-            const response = await fetch(apiUrl, {
+            upstreamResponse = await fetch(apiUrl, {
                 method: "POST",
                 body: formData,
             });
+        }
 
-            const text = await response.text();
-            const payload = parseUpstreamJson(text);
+        const text = await upstreamResponse.text();
+        const payload = parseUpstreamJson(text);
 
-            if (!payload) {
-                return res.status(502).json(
-                    buildProxyError(
-                        "invalid_upstream_response",
-                        "服飾辨識服務回傳的不是有效 JSON。",
-                        text || null
-                    )
-                );
-            }
-
-            return res.status(response.status).json(payload);
-        } catch (error) {
+        if (!payload) {
             return res.status(502).json(
                 buildProxyError(
-                    "upstream_request_failed",
-                    "服飾辨識服務請求失敗。",
-                    error instanceof Error ? { cause: error.message } : null
+                    "invalid_upstream_response",
+                    "服飾辨識服務回傳的不是有效 JSON。",
+                    text || null
                 )
             );
         }
-    });
+
+        return res.status(upstreamResponse.status).json(withPreview(payload, preview));
+    } catch (error) {
+        return res.status(502).json(
+            buildProxyError(
+                "upstream_request_failed",
+                "服飾辨識服務請求失敗。",
+                error instanceof Error ? { cause: error.message } : null
+            )
+        );
+    }
 }

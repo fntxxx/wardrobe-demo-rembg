@@ -74,6 +74,24 @@ export type AttributeResult = {
     scores: AttributeScores;
 };
 
+export type PredictInput = File | Blob | {
+    base64: string;
+    filename?: string;
+    mimeType?: string;
+};
+
+export type PredictPreview = {
+    base64: string;
+    filename: string;
+    mimeType: string;
+    dataUrl: string;
+};
+
+export type PredictResult = {
+    attributes: AttributeResult;
+    preview: PredictPreview | null;
+};
+
 type PredictOptions = {
     silent?: boolean;
 };
@@ -88,6 +106,12 @@ type PredictValidationPayload = {
     best_label: string;
     valid_score: number;
     invalid_score: number;
+};
+
+type PredictPreviewPayload = {
+    base64: string;
+    filename: string;
+    mimeType: string;
 };
 
 type PredictSuccessData = {
@@ -105,6 +129,7 @@ type PredictSuccessData = {
     detectedLabel?: string | null;
     bbox?: number[] | null;
     validation?: Partial<PredictValidationPayload>;
+    preview?: Partial<PredictPreviewPayload>;
     scores?: Partial<{
         mainCategory: number;
         category: number;
@@ -477,16 +502,46 @@ function normalizeResult(data: PredictSuccessData): AttributeResult {
     };
 }
 
+function normalizePreview(data: PredictSuccessData): PredictPreview | null {
+    const base64 = typeof data.preview?.base64 === "string" ? data.preview.base64.trim() : "";
+
+    if (!base64) {
+        return null;
+    }
+
+    const filename =
+        typeof data.preview?.filename === "string" && data.preview.filename.trim()
+            ? data.preview.filename.trim()
+            : "image.png";
+    const mimeType =
+        typeof data.preview?.mimeType === "string" && data.preview.mimeType.trim()
+            ? data.preview.mimeType.trim()
+            : "image/png";
+
+    return {
+        base64,
+        filename,
+        mimeType,
+        dataUrl: `data:${mimeType};base64,${base64}`,
+    };
+}
+
+function isBase64Input(value: PredictInput): value is Exclude<PredictInput, File | Blob> {
+    return typeof File !== "undefined"
+        ? !(value instanceof File) && !(value instanceof Blob)
+        : !(value instanceof Blob);
+}
+
 export function useAttributes() {
     const [attributes, setAttributes] = useState<AttributeResult | null>(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
     async function predict(
-        input: File | Blob,
+        input: PredictInput,
         filename = "image.png",
         options: PredictOptions = {}
-    ): Promise<AttributeResult | null> {
+    ): Promise<PredictResult | null> {
         const { silent = false } = options;
 
         if (!silent) {
@@ -495,12 +550,28 @@ export function useAttributes() {
         setError(null);
 
         try {
-            const formData = new FormData();
-            formData.append("image", input, filename);
+            let body: BodyInit;
+            let headers: HeadersInit | undefined;
+
+            if (isBase64Input(input)) {
+                body = JSON.stringify({
+                    base64: input.base64,
+                    filename: input.filename || filename,
+                    mimeType: input.mimeType || "image/png",
+                });
+                headers = {
+                    "Content-Type": "application/json",
+                };
+            } else {
+                const formData = new FormData();
+                formData.append("image", input, filename);
+                body = formData;
+            }
 
             const res = await fetch("/api/attributes", {
                 method: "POST",
-                body: formData,
+                body,
+                headers,
             });
 
             const text = await res.text();
@@ -514,13 +585,18 @@ export function useAttributes() {
                 throw new Error(message);
             }
 
-            const normalized = normalizeResult(payload.data);
+            const normalizedAttributes = normalizeResult(payload.data);
+            const preview = normalizePreview(payload.data);
+            const result: PredictResult = {
+                attributes: normalizedAttributes,
+                preview,
+            };
 
             if (!silent) {
-                setAttributes(normalized);
+                setAttributes(normalizedAttributes);
             }
 
-            return normalized;
+            return result;
         } catch (err) {
             const message = err instanceof Error ? err.message : "屬性辨識失敗。";
 

@@ -317,22 +317,6 @@ async function parseRemoveBgResponse(response: Response): Promise<RemoveBgRespon
   return json;
 }
 
-function decodeBase64Image(image: RemoveBgSuccessData["image"]) {
-  const binary = atob(image.base64);
-  const bytes = new Uint8Array(binary.length);
-
-  for (let i = 0; i < binary.length; i += 1) {
-    bytes[i] = binary.charCodeAt(i);
-  }
-
-  const blob = new Blob([bytes], { type: image.mime_type || "image/png" });
-  return {
-    blob,
-    objectUrl: URL.createObjectURL(blob),
-    filename: image.filename || "removed_bg.png",
-  };
-}
-
 export default function HomePage() {
   const isMobile = useIsMobile();
 
@@ -341,8 +325,6 @@ export default function HomePage() {
 
   const [originalUrl, setOriginalUrl] = useState<string | null>(null);
   const [removedUrl, setRemovedUrl] = useState<string | null>(null);
-
-  const [removedBlob, setRemovedBlob] = useState<Blob | null>(null);
 
   const {
     attributes,
@@ -396,21 +378,52 @@ export default function HomePage() {
       );
     }
 
-    const decodedImage = decodeBase64Image(removePayload.data.image);
-    setRemovedBlob(decodedImage.blob);
-    setRemovedUrl(decodedImage.objectUrl);
-
     setStage("predicting");
 
-    const removedResult = await predict(decodedImage.blob, decodedImage.filename, {
-      silent: true,
-    });
+    const originalResult = await predict(picked, picked.name, { silent: true });
+    const removedResult = await predict(
+      {
+        base64: removePayload.data.image.base64,
+        filename: removePayload.data.image.filename,
+        mimeType: removePayload.data.image.mime_type,
+      },
+      removePayload.data.image.filename,
+      { silent: true }
+    );
 
-    if (!removedResult) {
+    if (!originalResult || !removedResult) {
       throw new Error("辨識結果為空。");
     }
 
-    setAttributes(removedResult);
+    if (!removedResult.preview) {
+      throw new Error("辨識結果缺少預覽圖資料。");
+    }
+
+    if (removedUrl) {
+      URL.revokeObjectURL(removedUrl);
+    }
+    setRemovedUrl(removedResult.preview.dataUrl);
+
+    const merged = {
+      ...originalResult.attributes,
+      colors: removedResult.attributes.colors,
+      legacy: {
+        ...originalResult.attributes.legacy,
+        colorTone: removedResult.attributes.legacy.colorTone,
+        colorTags: removedResult.attributes.legacy.colorTags,
+      },
+      latest: {
+        ...originalResult.attributes.latest,
+        color: removedResult.attributes.latest.color,
+        colorLabel: removedResult.attributes.latest.colorLabel,
+      },
+      scores: {
+        ...originalResult.attributes.scores,
+        colorTone: removedResult.attributes.scores.colorTone,
+      },
+    };
+
+    setAttributes(merged);
   }
 
   async function onPickFile(e: React.ChangeEvent<HTMLInputElement>) {
@@ -421,7 +434,6 @@ export default function HomePage() {
     setAttrError(null);
     setAttributes(null);
     setFormState(null);
-    setRemovedBlob(null);
 
     if (originalUrl) URL.revokeObjectURL(originalUrl);
     if (removedUrl) URL.revokeObjectURL(removedUrl);
@@ -437,7 +449,6 @@ export default function HomePage() {
     } catch (err) {
       const message = err instanceof Error ? err.message : "處理失敗";
       setError(message);
-      setRemovedBlob(null);
       setRemovedUrl(null);
     } finally {
       setStage("idle");
@@ -600,7 +611,7 @@ export default function HomePage() {
                 <img src={removedUrl} alt="removed" style={{ width: "100%", display: "block" }} />
               ) : (
                 <span style={{ color: "#9CA3AF", fontWeight: 600 }}>
-                  {removedBlob ? "處理中..." : "尚未產生去背圖"}
+                  {stage === "predicting" ? "處理中..." : "尚未產生去背圖"}
                 </span>
               )}
             </div>
