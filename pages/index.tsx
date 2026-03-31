@@ -1,6 +1,6 @@
 /* eslint-disable @next/next/no-img-element */
 import { useEffect, useMemo, useState } from "react";
-import { useAttributes, type AttributeResult } from "@/lib/useAttributes";
+import { useAttributes } from "@/lib/useAttributes";
 import {
   CATEGORY_OPTIONS,
   OCCASION_OPTIONS,
@@ -402,35 +402,15 @@ export default function HomePage() {
 
     setStage("predicting");
 
-    const originalResult = await predict(picked, picked.name, { silent: true });
     const removedResult = await predict(decodedImage.blob, decodedImage.filename, {
       silent: true,
     });
 
-    if (!originalResult || !removedResult) {
+    if (!removedResult) {
       throw new Error("辨識結果為空。");
     }
 
-    const merged: AttributeResult = {
-      ...originalResult,
-      colors: removedResult.colors,
-      legacy: {
-        ...originalResult.legacy,
-        colorTone: removedResult.legacy.colorTone,
-        colorTags: removedResult.legacy.colorTags,
-      },
-      latest: {
-        ...originalResult.latest,
-        color: removedResult.latest.color,
-        colorLabel: removedResult.latest.colorLabel,
-      },
-      scores: {
-        ...originalResult.scores,
-        colorTone: removedResult.scores.colorTone,
-      },
-    };
-
-    setAttributes(merged);
+    setAttributes(removedResult);
   }
 
   async function onPickFile(e: React.ChangeEvent<HTMLInputElement>) {
