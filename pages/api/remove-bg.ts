@@ -180,9 +180,15 @@ export default async function handler(
 
         const formData = new FormData();
         const mimeType = file.mimetype || "application/octet-stream";
+
+        const uploadArrayBuffer = buffer.buffer.slice(
+            buffer.byteOffset,
+            buffer.byteOffset + buffer.byteLength
+        ) as ArrayBuffer;
+
         formData.append(
             "file",
-            new Blob([buffer], { type: mimeType }),
+            new Blob([uploadArrayBuffer], { type: mimeType }),
             file.originalFilename || "upload.png"
         );
 

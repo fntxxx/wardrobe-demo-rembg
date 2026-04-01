@@ -251,10 +251,15 @@ export default async function handler(
             );
         }
 
+        const imageArrayBuffer = asset.buffer.buffer.slice(
+            asset.buffer.byteOffset,
+            asset.buffer.byteOffset + asset.buffer.byteLength
+        ) as ArrayBuffer;
+
         const formData = new FormData();
         formData.append(
             "image",
-            new Blob([asset.buffer], { type: asset.mimeType }),
+            new Blob([imageArrayBuffer], { type: asset.mimeType }),
             asset.filename
         );
 
