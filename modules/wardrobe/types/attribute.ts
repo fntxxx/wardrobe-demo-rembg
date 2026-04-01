@@ -67,22 +67,16 @@ export type AttributeResult = {
   scores: AttributeScores;
 };
 
-export type ProcessedImageInput = {
-  base64: string;
-  filename?: string;
-  mimeType?: string;
-};
-
-export type PredictPreview = {
-  base64: string;
+export type ProcessedImageAsset = {
+  assetId: string;
+  previewUrl: string;
   filename: string;
   mimeType: string;
-  dataUrl: string;
+  expiresAt: string;
 };
 
 export type PredictResult = {
   attributes: AttributeResult;
-  preview: PredictPreview | null;
 };
 
 export type PredictOptions = {

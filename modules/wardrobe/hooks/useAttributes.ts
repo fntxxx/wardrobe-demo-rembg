@@ -16,7 +16,6 @@ import type {
   CandidateItem,
   PredictOptions,
   PredictResult,
-  ProcessedImageInput,
 } from "@/modules/wardrobe/types/attribute";
 
 type ApiErrorPayload = {
@@ -29,12 +28,6 @@ type PredictValidationPayload = {
   best_label: string;
   valid_score: number;
   invalid_score: number;
-};
-
-type PredictPreviewPayload = {
-  base64: string;
-  filename: string;
-  mimeType: string;
 };
 
 type PredictSuccessData = {
@@ -52,7 +45,6 @@ type PredictSuccessData = {
   detectedLabel?: string | null;
   bbox?: number[] | null;
   validation?: Partial<PredictValidationPayload>;
-  preview?: Partial<PredictPreviewPayload>;
   scores?: Partial<{
     mainCategory: number;
     category: number;
@@ -424,37 +416,6 @@ function buildColorTags(rawColorLabel: string): string[] {
     .filter(Boolean);
 }
 
-function toDataUrl(preview: PredictPreviewPayload): string {
-  return `data:${preview.mimeType};base64,${preview.base64}`;
-}
-
-function normalizePreview(preview: PredictSuccessData["preview"]): PredictResult["preview"] {
-  if (!preview || typeof preview.base64 !== "string" || !preview.base64.trim()) {
-    return null;
-  }
-
-  const filename =
-    typeof preview.filename === "string" && preview.filename.trim()
-      ? preview.filename.trim()
-      : "image.png";
-  const mimeType =
-    typeof preview.mimeType === "string" && preview.mimeType.trim()
-      ? preview.mimeType.trim()
-      : "image/png";
-
-  const normalizedPreview = {
-    base64: preview.base64.trim(),
-    filename,
-    mimeType,
-    dataUrl: "",
-  };
-
-  return {
-    ...normalizedPreview,
-    dataUrl: toDataUrl(normalizedPreview),
-  };
-}
-
 function normalizeAttributes(data: PredictSuccessData): AttributeResult {
   const category = normalizeCategoryValue(data.category);
   const categoryCandidates = normalizeCandidateArray(
@@ -553,8 +514,7 @@ export function useAttributes() {
   const [error, setError] = useState<string | null>(null);
 
   async function predict(
-    input: ProcessedImageInput,
-    filename = "image.png",
+    assetId: string,
     options: PredictOptions = {}
   ): Promise<PredictResult | null> {
     const { silent = false } = options;
@@ -571,9 +531,7 @@ export function useAttributes() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          base64: input.base64,
-          filename: input.filename || filename,
-          mimeType: input.mimeType || "image/png",
+          assetId,
         }),
       });
 
@@ -589,10 +547,8 @@ export function useAttributes() {
       }
 
       const normalizedAttributes = normalizeAttributes(payload.data);
-      const preview = normalizePreview(payload.data.preview);
       const result: PredictResult = {
         attributes: normalizedAttributes,
-        preview,
       };
 
       if (!silent) {

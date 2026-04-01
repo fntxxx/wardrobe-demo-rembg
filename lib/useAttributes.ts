@@ -3,8 +3,7 @@ export type {
     AttributeResult,
     CandidateItem,
     MultiSelectField,
-    PredictPreview,
     PredictResult,
-    ProcessedImageInput,
+    ProcessedImageAsset,
     SingleSelectField,
 } from "@/modules/wardrobe/types/attribute";

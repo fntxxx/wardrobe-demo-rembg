@@ -1,14 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
 import { useAttributes } from "@/modules/wardrobe/hooks/useAttributes";
 import type { FormState, ProcessStage } from "@/modules/wardrobe/types/demo";
-import type { CandidateItem } from "@/modules/wardrobe/types/attribute";
+import type {
+  CandidateItem,
+  ProcessedImageAsset,
+} from "@/modules/wardrobe/types/attribute";
 import { parseRemoveBgResponse } from "@/modules/wardrobe/utils/demo";
 
 export function useWardrobeDemo() {
   const [stage, setStage] = useState<ProcessStage>("idle");
   const [error, setError] = useState<string | null>(null);
   const [originalUrl, setOriginalUrl] = useState<string | null>(null);
-  const [processedUrl, setProcessedUrl] = useState<string | null>(null);
+  const [processedAsset, setProcessedAsset] = useState<ProcessedImageAsset | null>(null);
   const [formState, setFormState] = useState<FormState | null>(null);
 
   const {
@@ -25,11 +28,8 @@ export function useWardrobeDemo() {
       if (originalUrl) {
         URL.revokeObjectURL(originalUrl);
       }
-      if (processedUrl && !processedUrl.startsWith("data:")) {
-        URL.revokeObjectURL(processedUrl);
-      }
     };
-  }, [originalUrl, processedUrl]);
+  }, [originalUrl]);
 
   useEffect(() => {
     if (!attributes) {
@@ -65,15 +65,10 @@ export function useWardrobeDemo() {
       throw new Error(removePayload.ok === false ? removePayload.error.message : "去背失敗。");
     }
 
+    setProcessedAsset(removePayload.data);
     setStage("predicting");
 
-    const processedInput = {
-      base64: removePayload.data.image.base64,
-      filename: removePayload.data.image.filename,
-      mimeType: removePayload.data.image.mime_type,
-    };
-
-    const processedResult = await predict(processedInput, removePayload.data.image.filename, {
+    const processedResult = await predict(removePayload.data.assetId, {
       silent: true,
     });
 
@@ -81,16 +76,6 @@ export function useWardrobeDemo() {
       throw new Error("辨識結果為空。");
     }
 
-    const nextProcessedUrl =
-      processedResult.preview?.dataUrl ||
-      `data:${processedInput.mimeType};base64,${processedInput.base64}`;
-
-    setProcessedUrl((previous) => {
-      if (previous && !previous.startsWith("data:")) {
-        URL.revokeObjectURL(previous);
-      }
-      return nextProcessedUrl;
-    });
     setAttributes(processedResult.attributes);
   }
 
@@ -104,15 +89,10 @@ export function useWardrobeDemo() {
     setAttrError(null);
     setAttributes(null);
     setFormState(null);
+    setProcessedAsset(null);
 
     setOriginalUrl((previous) => {
       if (previous) {
-        URL.revokeObjectURL(previous);
-      }
-      return null;
-    });
-    setProcessedUrl((previous) => {
-      if (previous && !previous.startsWith("data:")) {
         URL.revokeObjectURL(previous);
       }
       return null;
@@ -126,7 +106,7 @@ export function useWardrobeDemo() {
     } catch (error) {
       const message = error instanceof Error ? error.message : "處理失敗";
       setError(message);
-      setProcessedUrl(null);
+      setProcessedAsset(null);
     } finally {
       setStage("idle");
       event.target.value = "";
@@ -155,7 +135,8 @@ export function useWardrobeDemo() {
     attrError,
     loading,
     originalUrl,
-    processedUrl,
+    processedUrl: processedAsset?.previewUrl ?? null,
+    processedAsset,
     attributes,
     formState,
     setFormState,
