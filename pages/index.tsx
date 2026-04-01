@@ -71,17 +71,17 @@ function useIsMobile(breakpoint = 900) {
 
 function toggleMultiValue<T extends string>(current: T[], value: T) {
   if (current.includes(value)) {
+    if (current.length === 1) {
+      return current;
+    }
+
     return current.filter((item) => item !== value);
   }
 
   return [...current, value];
 }
 
-function toggleSingleValue<T extends string>(current: T[], value: T) {
-  if (current.length === 1 && current[0] === value) {
-    return [];
-  }
-
+function toggleSingleValue<T extends string>(value: T) {
   return [value];
 }
 
@@ -654,7 +654,7 @@ export default function HomePage() {
                           prev
                             ? {
                               ...prev,
-                              seasons: toggleSingleValue(prev.seasons, option.value),
+                              seasons: toggleMultiValue(prev.seasons, option.value),
                             }
                             : prev
                         )
@@ -687,7 +687,7 @@ export default function HomePage() {
                           prev
                             ? {
                               ...prev,
-                              colors: toggleSingleValue(prev.colors, option.value),
+                              colors: toggleSingleValue(option.value),
                             }
                             : prev
                         )
