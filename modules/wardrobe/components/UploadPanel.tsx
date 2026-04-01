@@ -63,6 +63,8 @@ export function UploadPanel({ stage, isBusy, error, attrError, onChange }: Uploa
             fontSize: 14,
             fontWeight: 700,
             lineHeight: 1.6,
+            whiteSpace: "pre-wrap",
+            wordBreak: "break-word",
           }}
         >
           {error || attrError}

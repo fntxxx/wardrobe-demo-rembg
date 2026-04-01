@@ -72,6 +72,14 @@ type RawApiResponse =
   | { ok: true; data: PredictSuccessData }
   | { ok: false; error: ApiErrorPayload };
 
+type ParsedHttpResponse = {
+  status: number;
+  statusText: string;
+  contentType: string | null;
+  text: string;
+  json: unknown | null;
+};
+
 const CATEGORY_LABEL_MAP = new Map(
   CATEGORY_OPTIONS.map((option) => [option.value, option.label])
 );
@@ -97,6 +105,7 @@ const SEASON_VALUE_SET = new Set<SeasonValue>(
 const COLOR_VALUE_SET = new Set<ColorValue>(
   COLOR_OPTIONS.map((option) => option.value)
 );
+const RAW_TEXT_PREVIEW_LIMIT = 600;
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -137,22 +146,79 @@ function isPredictSuccessData(value: unknown): value is PredictSuccessData {
   );
 }
 
-function parseApiResponse(text: string): RawApiResponse {
-  let json: unknown;
+function getObjectKeysText(value: unknown): string {
+  if (!isObject(value)) {
+    return typeof value;
+  }
 
+  const keys = Object.keys(value);
+  return keys.length > 0 ? keys.join(", ") : "(no keys)";
+}
+
+function parseJsonSafely(text: string): unknown | null {
   try {
-    json = JSON.parse(text);
+    return JSON.parse(text) as unknown;
   } catch {
-    throw new Error("屬性服務回傳格式不是有效 JSON。");
+    return null;
+  }
+}
+
+function truncateText(value: string): string {
+  const normalized = value.trim();
+
+  if (!normalized) {
+    return "(empty body)";
+  }
+
+  return normalized.slice(0, RAW_TEXT_PREVIEW_LIMIT);
+}
+
+function buildHttpSummary(response: ParsedHttpResponse): string {
+  const summaryParts = [
+    `HTTP ${response.status}${response.statusText ? ` ${response.statusText}` : ""}`,
+    response.contentType ? `content-type=${response.contentType}` : null,
+  ].filter((part): part is string => Boolean(part));
+
+  return summaryParts.join(" | ");
+}
+
+async function readResponsePayload(res: Response): Promise<ParsedHttpResponse> {
+  const text = await res.text();
+  return {
+    status: res.status,
+    statusText: res.statusText,
+    contentType: res.headers.get("content-type"),
+    text,
+    json: parseJsonSafely(text),
+  };
+}
+
+function parseApiResponse(response: ParsedHttpResponse): RawApiResponse {
+  const { json } = response;
+
+  if (json === null) {
+    throw new Error(
+      `屬性服務回傳的不是有效 JSON。${buildHttpSummary(response)} body=${truncateText(
+        response.text
+      )}`
+    );
   }
 
   if (!isObject(json) || typeof json.ok !== "boolean") {
-    throw new Error("屬性服務回傳格式不符合預期。");
+    throw new Error(
+      `屬性服務 JSON 結構不符合預期。${buildHttpSummary(response)} keys=${getObjectKeysText(
+        json
+      )}`
+    );
   }
 
   if (json.ok === false) {
     if (!isApiErrorPayload(json.error)) {
-      throw new Error("屬性服務錯誤格式不符合預期。");
+      throw new Error(
+        `屬性服務錯誤回應結構不符合預期。${buildHttpSummary(
+          response
+        )} errorKeys=${getObjectKeysText(isObject(json) ? json.error : null)}`
+      );
     }
 
     return {
@@ -162,7 +228,11 @@ function parseApiResponse(text: string): RawApiResponse {
   }
 
   if (!isPredictSuccessData(json.data)) {
-    throw new Error("屬性服務成功回傳格式不符合預期。");
+    throw new Error(
+      `屬性服務成功回應結構不符合預期。${buildHttpSummary(
+        response
+      )} dataKeys=${getObjectKeysText(isObject(json) ? json.data : null)}`
+    );
   }
 
   return {
@@ -172,11 +242,55 @@ function parseApiResponse(text: string): RawApiResponse {
 }
 
 function normalizeErrorMessage(error: ApiErrorPayload): string {
-  if (error.message?.trim()) {
-    return error.message.trim();
+  const message = error.message?.trim() || "屬性辨識失敗。";
+  const details = isObject(error.details) ? error.details : null;
+
+  if (!details) {
+    return message;
   }
 
-  return "屬性辨識失敗。";
+  const upstreamStatus =
+    typeof details.upstreamStatus === "number" ? details.upstreamStatus : null;
+  const upstreamContentType =
+    typeof details.upstreamContentType === "string" && details.upstreamContentType.trim()
+      ? details.upstreamContentType.trim()
+      : null;
+  const upstreamUrl =
+    typeof details.upstreamUrl === "string" && details.upstreamUrl.trim()
+      ? details.upstreamUrl.trim()
+      : null;
+  const rawBodyPreview =
+    typeof details.rawBodyPreview === "string" && details.rawBodyPreview.trim()
+      ? details.rawBodyPreview.trim()
+      : null;
+  const parsedBodyKeys = isObject(details.parsedBody)
+    ? Object.keys(details.parsedBody).join(", ") || "(no keys)"
+    : null;
+  const cause =
+    typeof details.cause === "string" && details.cause.trim()
+      ? details.cause.trim()
+      : null;
+
+  const summaryParts = [
+    upstreamStatus !== null ? `status=${upstreamStatus}` : null,
+    upstreamContentType ? `content-type=${upstreamContentType}` : null,
+    upstreamUrl ? `upstream=${upstreamUrl}` : null,
+    parsedBodyKeys ? `parsedBodyKeys=${parsedBodyKeys}` : null,
+    cause ? `cause=${cause}` : null,
+  ].filter((part): part is string => Boolean(part));
+
+  if (summaryParts.length === 0 && !rawBodyPreview) {
+    return message;
+  }
+
+  const diagnosticText = [
+    summaryParts.length > 0 ? `[${summaryParts.join(" | ")}]` : null,
+    rawBodyPreview ? `body=${rawBodyPreview}` : null,
+  ]
+    .filter((part): part is string => Boolean(part))
+    .join(" ");
+
+  return diagnosticText ? `${message} ${diagnosticText}` : message;
 }
 
 function dedupeCandidates<T extends string>(
@@ -284,12 +398,12 @@ function normalizeColorSelections(
         normalizedCandidates.length > 0
           ? normalizedCandidates
           : [
-              {
-                value: selectedColor,
-                label: COLOR_LABEL_MAP.get(selectedColor) || selectedColor,
-                score: 1,
-              },
-            ],
+            {
+              value: selectedColor,
+              label: COLOR_LABEL_MAP.get(selectedColor) || selectedColor,
+              score: 1,
+            },
+          ],
     };
   }
 
@@ -399,12 +513,12 @@ function normalizeAttributes(data: PredictSuccessData): AttributeResult {
         categoryCandidates.length > 0
           ? categoryCandidates
           : [
-              {
-                value: category,
-                label: data.categoryLabel || CATEGORY_LABEL_MAP.get(category) || category,
-                score: data.scores?.category ?? data.score,
-              },
-            ],
+            {
+              value: category,
+              label: data.categoryLabel || CATEGORY_LABEL_MAP.get(category) || category,
+              score: data.scores?.category ?? data.score,
+            },
+          ],
     },
     occasions: {
       selected: occasionValues,
@@ -463,12 +577,14 @@ export function useAttributes() {
         }),
       });
 
-      const text = await res.text();
-      const payload = parseApiResponse(text);
+      const response = await readResponsePayload(res);
+      const payload = parseApiResponse(response);
 
       if (!res.ok || payload.ok === false) {
         throw new Error(
-          payload.ok === false ? normalizeErrorMessage(payload.error) : "屬性辨識失敗。"
+          payload.ok === false
+            ? normalizeErrorMessage(payload.error)
+            : `屬性辨識失敗。${buildHttpSummary(response)}`
         );
       }
 

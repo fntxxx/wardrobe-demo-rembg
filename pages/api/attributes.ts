@@ -1,5 +1,11 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 
+export const config = {
+    api: {
+        bodyParser: false,
+    },
+};
+
 type ApiErrorPayload = {
     code: string;
     message: string;
@@ -22,6 +28,21 @@ type PredictPreviewPayload = {
     mimeType: string;
 };
 
+type UpstreamDiagnostics = {
+    upstreamUrl: string;
+    upstreamStatus: number;
+    upstreamContentType: string | null;
+    isJson: boolean;
+    isHtml: boolean;
+    isText: boolean;
+    isEmptyBody: boolean;
+    rawBodyPreview: string | null;
+    rawBodyLength: number;
+    envelopeValid: boolean;
+};
+
+const RAW_BODY_PREVIEW_LIMIT = 1000;
+
 function buildProxyError(
     code: string,
     message: string,
@@ -37,16 +58,36 @@ function buildProxyError(
     };
 }
 
-function parseUpstreamJson(text: string): ApiEnvelope | null {
+function isObject(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value !== null;
+}
+
+function isApiErrorPayload(value: unknown): value is ApiErrorPayload {
+    return (
+        isObject(value) &&
+        typeof value.code === "string" &&
+        typeof value.message === "string"
+    );
+}
+
+function isApiEnvelope(value: unknown): value is ApiEnvelope {
+    if (!isObject(value) || typeof value.ok !== "boolean") {
+        return false;
+    }
+
+    if (value.ok === true) {
+        return "data" in value;
+    }
+
+    return isApiErrorPayload(value.error);
+}
+
+function parseUpstreamJson(text: string): unknown | null {
     try {
-        return JSON.parse(text) as ApiEnvelope;
+        return JSON.parse(text) as unknown;
     } catch {
         return null;
     }
-}
-
-function isObject(value: unknown): value is Record<string, unknown> {
-    return typeof value === "object" && value !== null;
 }
 
 function isBase64RequestPayload(value: unknown): value is Base64RequestPayload {
@@ -76,6 +117,58 @@ function withPreview(
             ...payload.data,
             preview,
         },
+    };
+}
+
+function truncateRawBody(text: string): string | null {
+    const normalized = text.trim();
+
+    if (!normalized) {
+        return null;
+    }
+
+    return normalized.slice(0, RAW_BODY_PREVIEW_LIMIT);
+}
+
+function detectHtml(text: string, contentType: string | null): boolean {
+    if (contentType?.toLowerCase().includes("text/html")) {
+        return true;
+    }
+
+    const normalized = text.trim().toLowerCase();
+    return normalized.startsWith("<!doctype html") || normalized.startsWith("<html");
+}
+
+function detectJson(contentType: string | null, text: string): boolean {
+    if (contentType?.toLowerCase().includes("application/json")) {
+        return true;
+    }
+
+    const normalized = text.trim();
+    return normalized.startsWith("{") || normalized.startsWith("[");
+}
+
+function buildUpstreamDiagnostics(
+    upstreamUrl: string,
+    upstreamResponse: Response,
+    text: string,
+    envelopeValid: boolean
+): UpstreamDiagnostics {
+    const contentType = upstreamResponse.headers.get("content-type");
+
+    return {
+        upstreamUrl,
+        upstreamStatus: upstreamResponse.status,
+        upstreamContentType: contentType,
+        isJson: detectJson(contentType, text),
+        isHtml: detectHtml(text, contentType),
+        isText:
+            contentType?.toLowerCase().startsWith("text/") ||
+            (!contentType && Boolean(text.trim())),
+        isEmptyBody: text.trim().length === 0,
+        rawBodyPreview: truncateRawBody(text),
+        rawBodyLength: text.length,
+        envelopeValid,
     };
 }
 
@@ -187,6 +280,7 @@ export default async function handler(
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
+                Accept: "application/json",
             },
             body: JSON.stringify({
                 base64: preview.base64,
@@ -196,25 +290,47 @@ export default async function handler(
         });
 
         const text = await upstreamResponse.text();
-        const payload = parseUpstreamJson(text);
+        const parsedJson = parseUpstreamJson(text);
+        const envelopeValid = isApiEnvelope(parsedJson);
+        const diagnostics = buildUpstreamDiagnostics(
+            apiUrl,
+            upstreamResponse,
+            text,
+            envelopeValid
+        );
 
-        if (!payload) {
+        if (parsedJson === null) {
             return res.status(502).json(
                 buildProxyError(
-                    "invalid_upstream_response",
-                    "服飾辨識服務回傳的不是有效 JSON。",
-                    text || null
+                    "invalid_upstream_json",
+                    "服飾辨識上游回傳的不是有效 JSON。",
+                    diagnostics
                 )
             );
         }
 
-        return res.status(upstreamResponse.status).json(withPreview(payload, preview));
+        if (!envelopeValid) {
+            return res.status(502).json(
+                buildProxyError(
+                    "invalid_upstream_envelope",
+                    "服飾辨識上游回傳的 JSON 不符合 demo contract。",
+                    {
+                        ...diagnostics,
+                        parsedBody: parsedJson,
+                    }
+                )
+            );
+        }
+
+        return res.status(upstreamResponse.status).json(withPreview(parsedJson, preview));
     } catch (error) {
         return res.status(502).json(
             buildProxyError(
                 "upstream_request_failed",
                 "服飾辨識服務請求失敗。",
-                error instanceof Error ? { cause: error.message } : null
+                error instanceof Error
+                    ? { cause: error.message, upstreamUrl: apiUrl }
+                    : { upstreamUrl: apiUrl }
             )
         );
     }
