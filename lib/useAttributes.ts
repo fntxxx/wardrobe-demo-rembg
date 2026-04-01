@@ -74,7 +74,7 @@ export type AttributeResult = {
     scores: AttributeScores;
 };
 
-export type PredictInput = File | Blob | {
+export type ProcessedImageInput = {
     base64: string;
     filename?: string;
     mimeType?: string;
@@ -238,7 +238,7 @@ function parseApiResponse(text: string): RawApiResponse {
     }
 
     if (!isPredictSuccessData(json.data)) {
-        throw new Error("屬性服務成功資料格式不符合預期。");
+        throw new Error("屬性服務成功回傳格式不符合預期。");
     }
 
     return {
@@ -247,20 +247,39 @@ function parseApiResponse(text: string): RawApiResponse {
     };
 }
 
-function normalizeErrorMessage(payload: ApiErrorPayload): string {
-    return payload.message || "屬性辨識失敗。";
+function normalizeErrorMessage(error: ApiErrorPayload): string {
+    if (error.message?.trim()) {
+        return error.message.trim();
+    }
+
+    return "屬性辨識失敗。";
+}
+
+function dedupeCandidates<T extends string>(
+    candidates: CandidateItem<T>[]
+): CandidateItem<T>[] {
+    const map = new Map<T, CandidateItem<T>>();
+
+    candidates.forEach((candidate) => {
+        const current = map.get(candidate.value);
+        if (!current || candidate.score > current.score) {
+            map.set(candidate.value, candidate);
+        }
+    });
+
+    return Array.from(map.values()).sort((a, b) => b.score - a.score);
 }
 
 function getLabel<T extends string>(
     labelMap: Map<string, string>,
     value: T,
     fallbackLabel?: string
-): string {
+) {
     return fallbackLabel || labelMap.get(value) || value;
 }
 
 function normalizeSingleValue<T extends string>(
-    value: string,
+    value: unknown,
     allowedValues: Set<T>,
     fallbackValue: T
 ): T {
@@ -268,30 +287,19 @@ function normalizeSingleValue<T extends string>(
 }
 
 function normalizeMultiValues<T extends string>(
-    input: string[],
+    values: unknown,
     allowedValues: Set<T>
 ): T[] {
-    return input.filter((value): value is T => allowedValues.has(value as T));
-}
+    if (!Array.isArray(values)) return [];
 
-function dedupeCandidates<T extends string>(items: CandidateItem<T>[]): CandidateItem<T>[] {
-    const map = new Map<T, CandidateItem<T>>();
-
-    for (const item of items) {
-        const prev = map.get(item.value);
-        if (!prev || item.score > prev.score) {
-            map.set(item.value, item);
-        }
-    }
-
-    return Array.from(map.values()).sort((a, b) => b.score - a.score);
+    return values.filter((value): value is T => allowedValues.has(value as T));
 }
 
 function ensureSingleCandidates<T extends string>(
     candidates: CandidateItem<T>[],
     selected: T,
     selectedLabel: string,
-    score = 0
+    score: number
 ): CandidateItem<T>[] {
     if (candidates.some((candidate) => candidate.value === selected)) {
         return candidates;
@@ -526,19 +534,13 @@ function normalizePreview(data: PredictSuccessData): PredictPreview | null {
     };
 }
 
-function isBase64Input(value: PredictInput): value is Exclude<PredictInput, File | Blob> {
-    return typeof File !== "undefined"
-        ? !(value instanceof File) && !(value instanceof Blob)
-        : !(value instanceof Blob);
-}
-
 export function useAttributes() {
     const [attributes, setAttributes] = useState<AttributeResult | null>(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
     async function predict(
-        input: PredictInput,
+        input: ProcessedImageInput,
         filename = "image.png",
         options: PredictOptions = {}
     ): Promise<PredictResult | null> {
@@ -550,28 +552,18 @@ export function useAttributes() {
         setError(null);
 
         try {
-            let body: BodyInit;
-            let headers: HeadersInit | undefined;
-
-            if (isBase64Input(input)) {
-                body = JSON.stringify({
-                    base64: input.base64,
-                    filename: input.filename || filename,
-                    mimeType: input.mimeType || "image/png",
-                });
-                headers = {
-                    "Content-Type": "application/json",
-                };
-            } else {
-                const formData = new FormData();
-                formData.append("image", input, filename);
-                body = formData;
-            }
+            const body = JSON.stringify({
+                base64: input.base64,
+                filename: input.filename || filename,
+                mimeType: input.mimeType || "image/png",
+            });
 
             const res = await fetch("/api/attributes", {
                 method: "POST",
                 body,
-                headers,
+                headers: {
+                    "Content-Type": "application/json",
+                },
             });
 
             const text = await res.text();

@@ -1,6 +1,4 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import formidable, { File } from "formidable";
-import fs from "node:fs";
 
 type ApiErrorPayload = {
     code: string;
@@ -23,17 +21,6 @@ type PredictPreviewPayload = {
     filename: string;
     mimeType: string;
 };
-
-export const config = {
-    api: {
-        bodyParser: false,
-    },
-};
-
-function getFirstFile(file: File | File[] | undefined): File | null {
-    if (!file) return null;
-    return Array.isArray(file) ? file[0] : file;
-}
 
 function buildProxyError(
     code: string,
@@ -93,6 +80,32 @@ function withPreview(
 }
 
 async function readJsonBody(req: NextApiRequest): Promise<unknown> {
+    const parsedBody = req.body;
+
+    if (typeof parsedBody === "string") {
+        const raw = parsedBody.trim();
+
+        if (!raw) {
+            throw new Error("empty_json_body");
+        }
+
+        return JSON.parse(raw);
+    }
+
+    if (Buffer.isBuffer(parsedBody)) {
+        const raw = parsedBody.toString("utf-8").trim();
+
+        if (!raw) {
+            throw new Error("empty_json_body");
+        }
+
+        return JSON.parse(raw);
+    }
+
+    if (parsedBody !== undefined) {
+        return parsedBody;
+    }
+
     const chunks: Buffer[] = [];
 
     for await (const chunk of req) {
@@ -106,28 +119,6 @@ async function readJsonBody(req: NextApiRequest): Promise<unknown> {
     }
 
     return JSON.parse(raw);
-}
-
-function parseMultipartForm(req: NextApiRequest): Promise<{ imageFile: File }> {
-    const form = formidable({ multiples: false });
-
-    return new Promise((resolve, reject) => {
-        form.parse(req, (err, _fields, files) => {
-            if (err) {
-                reject(err);
-                return;
-            }
-
-            const imageFile = getFirstFile(files.image as File | File[] | undefined);
-
-            if (!imageFile) {
-                reject(new Error("missing_image"));
-                return;
-            }
-
-            resolve({ imageFile });
-        });
-    });
 }
 
 export default async function handler(
@@ -151,91 +142,58 @@ export default async function handler(
     }
 
     const contentType = req.headers["content-type"] || "";
-    const isJsonRequest = contentType.includes("application/json");
+    if (!contentType.includes("application/json")) {
+        return res.status(400).json(
+            buildProxyError(
+                "invalid_content_type",
+                "辨識 API 僅接受 remove-bg 後的 JSON base64 圖片資料。"
+            )
+        );
+    }
 
     try {
-        let upstreamResponse: Response;
-        let preview: PredictPreviewPayload | null = null;
+        let jsonBody: unknown;
 
-        if (isJsonRequest) {
-            let jsonBody: unknown;
-
-            try {
-                jsonBody = await readJsonBody(req);
-            } catch (error) {
-                if (error instanceof Error && error.message === "empty_json_body") {
-                    return res.status(400).json(
-                        buildProxyError("empty_json_body", "JSON request body 不可為空。")
-                    );
-                }
-
+        try {
+            jsonBody = await readJsonBody(req);
+        } catch (error) {
+            if (error instanceof Error && error.message === "empty_json_body") {
                 return res.status(400).json(
-                    buildProxyError("invalid_json_body", "JSON request body 格式錯誤。")
+                    buildProxyError("empty_json_body", "JSON request body 不可為空。")
                 );
             }
 
-            if (!isBase64RequestPayload(jsonBody) || !jsonBody.base64.trim()) {
-                return res.status(400).json(
-                    buildProxyError(
-                        "invalid_request_body",
-                        "辨識請求缺少有效的 base64 欄位。"
-                    )
-                );
-            }
-
-            preview = {
-                base64: jsonBody.base64.trim(),
-                filename: (jsonBody.filename || "image.png").trim() || "image.png",
-                mimeType: (jsonBody.mimeType || "image/png").trim() || "image/png",
-            };
-
-            upstreamResponse = await fetch(apiUrl, {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                },
-                body: JSON.stringify({
-                    base64: preview.base64,
-                    filename: preview.filename,
-                    mimeType: preview.mimeType,
-                }),
-            });
-        } else {
-            let imageFile: File;
-
-            try {
-                ({ imageFile } = await parseMultipartForm(req));
-            } catch (error) {
-                if (error instanceof Error && error.message === "missing_image") {
-                    return res.status(400).json(
-                        buildProxyError("missing_image", "缺少 image 檔案。")
-                    );
-                }
-
-                return res.status(400).json(
-                    buildProxyError("form_parse_failed", "表單解析失敗。", {
-                        cause: error instanceof Error ? error.message : null,
-                    })
-                );
-            }
-
-            const fileBuffer = await fs.promises.readFile(imageFile.filepath);
-            const formData = new FormData();
-            const blob = new Blob([fileBuffer], {
-                type: imageFile.mimetype || "application/octet-stream",
-            });
-
-            formData.append(
-                "image",
-                blob,
-                imageFile.originalFilename || "image.jpg"
+            return res.status(400).json(
+                buildProxyError("invalid_json_body", "JSON request body 格式錯誤。")
             );
-
-            upstreamResponse = await fetch(apiUrl, {
-                method: "POST",
-                body: formData,
-            });
         }
+
+        if (!isBase64RequestPayload(jsonBody) || !jsonBody.base64.trim()) {
+            return res.status(400).json(
+                buildProxyError(
+                    "invalid_request_body",
+                    "辨識請求缺少有效的 remove-bg base64 欄位。"
+                )
+            );
+        }
+
+        const preview: PredictPreviewPayload = {
+            base64: jsonBody.base64.trim(),
+            filename: (jsonBody.filename || "image.png").trim() || "image.png",
+            mimeType: (jsonBody.mimeType || "image/png").trim() || "image/png",
+        };
+
+        const upstreamResponse = await fetch(apiUrl, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+                base64: preview.base64,
+                filename: preview.filename,
+                mimeType: preview.mimeType,
+            }),
+        });
 
         const text = await upstreamResponse.text();
         const payload = parseUpstreamJson(text);
