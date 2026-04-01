@@ -1,342 +1,192 @@
-import { useMemo } from "react";
-import { FilterChip } from "@/modules/wardrobe/components/FilterChip";
+import {
+  CATEGORY_OPTIONS,
+  OCCASION_OPTIONS,
+  SEASON_OPTIONS,
+  COLOR_OPTIONS,
+  type CategoryValue,
+  type OccasionValue,
+  type SeasonValue,
+  type ColorValue,
+} from "@/lib/wardrobeOptions";
 import { BlockTitle } from "@/modules/wardrobe/components/BlockTitle";
+import { FilterChip } from "@/modules/wardrobe/components/FilterChip";
+import { ColorCard } from "@/modules/wardrobe/components/ColorCard";
 import type { FormState } from "@/modules/wardrobe/types/demo";
-import { CATEGORY_OPTIONS, COLOR_OPTIONS, OCCASION_OPTIONS, SEASON_OPTIONS } from "@/lib/wardrobeOptions";
 
 type EditPanelProps = {
-    formState: FormState | null;
-    setFormState: React.Dispatch<React.SetStateAction<FormState | null>>;
-    canEdit: boolean;
-    isMobile: boolean;
+  formState: FormState | null;
+  setFormState: React.Dispatch<React.SetStateAction<FormState | null>>;
+  canEdit: boolean;
+  isMobile: boolean;
 };
 
-function toggleMultiValue(values: string[], nextValue: string) {
-    if (values.includes(nextValue)) {
-        return values.filter((item) => item !== nextValue);
+function toggleMultiValue<T extends string>(current: T[], value: T) {
+  if (current.includes(value)) {
+    if (current.length === 1) {
+      return current;
     }
 
-    return [...values, nextValue];
+    return current.filter((item) => item !== value);
+  }
+
+  return [...current, value];
 }
 
-export function EditPanel({
-    formState,
-    setFormState,
-    canEdit,
-    isMobile,
-}: EditPanelProps) {
-    const layoutStyle = useMemo<React.CSSProperties>(() => {
-        return {
-            display: "grid",
-            gap: 20,
-        };
-    }, []);
+function toggleSingleValue<T extends string>(value: T) {
+  return [value];
+}
 
-    function updateName(value: string) {
-        setFormState((previous) => {
-            if (!previous) return previous;
-
-            return {
-                ...previous,
-                name: value,
-            };
-        });
-    }
-
-    function updateCategory(value: string) {
-        setFormState((previous) => {
-            if (!previous) return previous;
-
-            return {
-                ...previous,
-                category: previous.category === value ? null : value,
-            };
-        });
-    }
-
-    function updateOccasion(value: string) {
-        setFormState((previous) => {
-            if (!previous) return previous;
-
-            return {
-                ...previous,
-                occasions: toggleMultiValue(previous.occasions, value),
-            };
-        });
-    }
-
-    function updateSeason(value: string) {
-        setFormState((previous) => {
-            if (!previous) return previous;
-
-            return {
-                ...previous,
-                seasons: toggleMultiValue(previous.seasons, value),
-            };
-        });
-    }
-
-    function updateColor(value: string) {
-        setFormState((previous) => {
-            if (!previous) return previous;
-
-            return {
-                ...previous,
-                colors: toggleMultiValue(previous.colors, value),
-            };
-        });
-    }
-
-    return (
-        <section
-            style={{
-                background: "#FFFFFF",
-                border: "1px solid #E5E7EB",
-                borderRadius: 20,
-                padding: 24,
-                boxShadow: "0 8px 30px rgba(15, 23, 42, 0.04)",
-            }}
-        >
-            <BlockTitle
-                title="2. 編輯最終資料"
-                description="辨識完成後，可直接在這裡調整名稱、類別、場合、季節與色系。"
-            />
-
-            {!formState ? (
-                <div
-                    style={{
-                        borderRadius: 16,
-                        background: "#F8FAFC",
-                        border: "1px solid #E2E8F0",
-                        color: "#64748B",
-                        padding: 16,
-                        fontSize: 14,
-                        lineHeight: 1.7,
-                    }}
-                >
-                    尚未有可編輯資料。請先上傳圖片並等待辨識完成。
-                </div>
-            ) : (
-                <div style={layoutStyle}>
-                    <div>
-                        <label
-                            htmlFor="wardrobe-name"
-                            style={{
-                                display: "block",
-                                marginBottom: 8,
-                                fontSize: 14,
-                                fontWeight: 700,
-                                color: "#111827",
-                            }}
-                        >
-                            名稱
-                        </label>
-
-                        <input
-                            id="wardrobe-name"
-                            type="text"
-                            value={formState.name}
-                            onChange={(event) => updateName(event.target.value)}
-                            disabled={!canEdit}
-                            style={{
-                                width: "100%",
-                                minHeight: 44,
-                                borderRadius: 12,
-                                border: "1px solid #D1D5DB",
-                                padding: "10px 12px",
-                                fontSize: 14,
-                                color: "#111827",
-                                background: canEdit ? "#FFFFFF" : "#F9FAFB",
-                                outline: "none",
-                            }}
-                        />
-                    </div>
-
-                    <div>
-                        <div
-                            style={{
-                                marginBottom: 10,
-                                fontSize: 14,
-                                fontWeight: 700,
-                                color: "#111827",
-                            }}
-                        >
-                            類別
-                        </div>
-
-                        <div
-                            style={{
-                                display: "flex",
-                                flexWrap: "wrap",
-                                gap: 10,
-                            }}
-                        >
-                            {CATEGORY_OPTIONS.map((item) => (
-                                <FilterChip
-                                    key={item.value}
-                                    label={item.label}
-                                    active={formState.category === item.value}
-                                    disabled={!canEdit}
-                                    onClick={() => updateCategory(item.value)}
-                                />
-                            ))}
-                        </div>
-                    </div>
-
-                    <div>
-                        <div
-                            style={{
-                                marginBottom: 10,
-                                fontSize: 14,
-                                fontWeight: 700,
-                                color: "#111827",
-                            }}
-                        >
-                            場合
-                        </div>
-
-                        <div
-                            style={{
-                                display: "flex",
-                                flexWrap: "wrap",
-                                gap: 10,
-                            }}
-                        >
-                            {OCCASION_OPTIONS.map((item) => (
-                                <FilterChip
-                                    key={item.value}
-                                    label={item.label}
-                                    active={formState.occasions.includes(item.value)}
-                                    disabled={!canEdit}
-                                    onClick={() => updateOccasion(item.value)}
-                                />
-                            ))}
-                        </div>
-                    </div>
-
-                    <div>
-                        <div
-                            style={{
-                                marginBottom: 10,
-                                fontSize: 14,
-                                fontWeight: 700,
-                                color: "#111827",
-                            }}
-                        >
-                            季節
-                        </div>
-
-                        <div
-                            style={{
-                                display: "flex",
-                                flexWrap: "wrap",
-                                gap: 10,
-                            }}
-                        >
-                            {SEASON_OPTIONS.map((item) => (
-                                <FilterChip
-                                    key={item.value}
-                                    label={item.label}
-                                    active={formState.seasons.includes(item.value)}
-                                    disabled={!canEdit}
-                                    onClick={() => updateSeason(item.value)}
-                                />
-                            ))}
-                        </div>
-                    </div>
-
-                    <div>
-                        <div
-                            style={{
-                                marginBottom: 10,
-                                fontSize: 14,
-                                fontWeight: 700,
-                                color: "#111827",
-                            }}
-                        >
-                            色系
-                        </div>
-
-                        <div
-                            style={{
-                                display: "flex",
-                                flexWrap: "wrap",
-                                gap: 10,
-                            }}
-                        >
-                            {COLOR_OPTIONS.map((item) => (
-                                <FilterChip
-                                    key={item.value}
-                                    label={item.label}
-                                    active={formState.colors.includes(item.value)}
-                                    disabled={!canEdit}
-                                    onClick={() => updateColor(item.value)}
-                                />
-                            ))}
-                        </div>
-                    </div>
-
-                    <div
-                        style={{
-                            display: "grid",
-                            gridTemplateColumns: isMobile ? "1fr" : "repeat(2, minmax(0, 1fr))",
-                            gap: 12,
-                            borderTop: "1px solid #E5E7EB",
-                            paddingTop: 18,
-                        }}
-                    >
-                        <SummaryItem label="最終類別" value={formState.category || "未選擇"} />
-                        <SummaryItem
-                            label="最終場合"
-                            value={formState.occasions.length > 0 ? formState.occasions.join("、") : "未選擇"}
-                        />
-                        <SummaryItem
-                            label="最終季節"
-                            value={formState.seasons.length > 0 ? formState.seasons.join("、") : "未選擇"}
-                        />
-                        <SummaryItem
-                            label="最終色系"
-                            value={formState.colors.length > 0 ? formState.colors.join("、") : "未選擇"}
-                        />
-                    </div>
-                </div>
-            )}
-        </section>
+export function EditPanel({ formState, setFormState, canEdit, isMobile }: EditPanelProps) {
+  function updateName(value: string) {
+    setFormState((prev) =>
+      prev
+        ? {
+            ...prev,
+            name: value,
+          }
+        : prev
     );
-}
+  }
 
-function SummaryItem({ label, value }: { label: string; value: string }) {
-    return (
-        <div
+  function updateCategory(value: CategoryValue) {
+    setFormState((prev) =>
+      prev
+        ? {
+            ...prev,
+            category: value,
+          }
+        : prev
+    );
+  }
+
+  function updateOccasion(value: OccasionValue) {
+    setFormState((prev) =>
+      prev
+        ? {
+            ...prev,
+            occasions: toggleMultiValue(prev.occasions, value),
+          }
+        : prev
+    );
+  }
+
+  function updateSeason(value: SeasonValue) {
+    setFormState((prev) =>
+      prev
+        ? {
+            ...prev,
+            seasons: toggleMultiValue(prev.seasons, value),
+          }
+        : prev
+    );
+  }
+
+  function updateColor(value: ColorValue) {
+    setFormState((prev) =>
+      prev
+        ? {
+            ...prev,
+            colors: toggleSingleValue(value),
+          }
+        : prev
+    );
+  }
+
+  return (
+    <>
+      <div style={{ height: 20 }} />
+
+      <BlockTitle title="編輯欄位" helper={canEdit ? "可調整" : "請先完成辨識"} />
+
+      <div style={{ display: "grid", gap: 22 }}>
+        <div>
+          <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 10, color: "#374151" }}>名稱</div>
+          <input
+            value={formState?.name ?? ""}
+            disabled={!canEdit}
+            onChange={(event) => updateName(event.target.value)}
+            placeholder="辨識完成後會帶入"
             style={{
-                borderRadius: 14,
-                background: "#F8FAFC",
-                border: "1px solid #E2E8F0",
-                padding: 14,
+              width: "100%",
+              height: 46,
+              borderRadius: 14,
+              border: "1px solid #D1D5DB",
+              background: canEdit ? "#FFFFFF" : "#F9FAFB",
+              padding: "0 14px",
+              fontSize: 15,
+              color: "#111827",
+              outline: "none",
             }}
-        >
-            <div
-                style={{
-                    fontSize: 12,
-                    lineHeight: 1.4,
-                    fontWeight: 700,
-                    color: "#64748B",
-                }}
-            >
-                {label}
-            </div>
-
-            <div
-                style={{
-                    marginTop: 6,
-                    fontSize: 14,
-                    lineHeight: 1.6,
-                    color: "#0F172A",
-                    wordBreak: "break-word",
-                }}
-            >
-                {value}
-            </div>
+          />
         </div>
-    );
+
+        <div>
+          <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 10, color: "#374151" }}>類別</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+            {CATEGORY_OPTIONS.map((option) => (
+              <FilterChip
+                key={option.value}
+                label={option.label}
+                active={formState?.category === option.value}
+                disabled={!canEdit}
+                onClick={() => updateCategory(option.value)}
+              />
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 10, color: "#374151" }}>場合</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+            {OCCASION_OPTIONS.map((option) => (
+              <FilterChip
+                key={option.value}
+                label={option.label}
+                active={Boolean(formState?.occasions.includes(option.value))}
+                disabled={!canEdit}
+                onClick={() => updateOccasion(option.value)}
+              />
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 10, color: "#374151" }}>季節</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+            {SEASON_OPTIONS.map((option) => (
+              <FilterChip
+                key={option.value}
+                label={option.label}
+                active={Boolean(formState?.seasons.includes(option.value))}
+                disabled={!canEdit}
+                onClick={() => updateSeason(option.value)}
+              />
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 12, color: "#374151" }}>色系</div>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: isMobile ? "repeat(2, minmax(0, 1fr))" : "repeat(5, minmax(0, 1fr))",
+              gap: 12,
+            }}
+          >
+            {COLOR_OPTIONS.map((option) => (
+              <ColorCard
+                key={option.value}
+                label={option.label}
+                swatches={option.swatches}
+                active={Boolean(formState?.colors.includes(option.value))}
+                disabled={!canEdit}
+                onClick={() => updateColor(option.value)}
+              />
+            ))}
+          </div>
+        </div>
+      </div>
+    </>
+  );
 }

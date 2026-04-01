@@ -1,373 +1,183 @@
+/* eslint-disable @next/next/no-img-element */
 import type { AttributeResult, CandidateItem } from "@/modules/wardrobe/types/attribute";
 import type { ProcessStage } from "@/modules/wardrobe/types/demo";
-import { BlockTitle } from "@/modules/wardrobe/components/BlockTitle";
-import { ColorCard } from "@/modules/wardrobe/components/ColorCard";
 
 type PreviewPanelProps = {
-    stage: ProcessStage;
-    originalUrl: string | null;
-    processedUrl: string | null;
-    attributes: AttributeResult | null;
-    categoryCandidates: CandidateItem[];
-    occasionCandidates: CandidateItem[];
-    seasonCandidates: CandidateItem[];
-    colorCandidates: CandidateItem[];
-    isMobile: boolean;
+  stage: ProcessStage;
+  originalUrl: string | null;
+  processedUrl: string | null;
+  attributes: AttributeResult | null;
+  categoryCandidates: CandidateItem[];
+  occasionCandidates: CandidateItem[];
+  seasonCandidates: CandidateItem[];
+  colorCandidates: CandidateItem[];
+  isMobile: boolean;
 };
 
-function formatPercent(score?: number) {
-    if (typeof score !== "number" || Number.isNaN(score)) {
-        return "0%";
-    }
-
-    return `${Math.round(score * 100)}%`;
+function formatPercent(value: number) {
+  return `${Math.round(value * 100)}%`;
 }
 
-function CandidateList({
-    title,
-    items,
-}: {
-    title: string;
-    items: CandidateItem[];
-}) {
-    return (
-        <div
-            style={{
-                borderRadius: 16,
-                border: "1px solid #E5E7EB",
-                background: "#FFFFFF",
-                padding: 16,
-            }}
-        >
-            <div
-                style={{
-                    marginBottom: 12,
-                    fontSize: 14,
-                    fontWeight: 700,
-                    color: "#111827",
-                }}
-            >
-                {title}
-            </div>
-
-            {items.length === 0 ? (
-                <div
-                    style={{
-                        fontSize: 13,
-                        color: "#6B7280",
-                        lineHeight: 1.6,
-                    }}
-                >
-                    尚無候選資料
-                </div>
-            ) : (
-                <div style={{ display: "grid", gap: 10 }}>
-                    {items.map((item) => (
-                        <div
-                            key={`${title}-${item.value}`}
-                            style={{
-                                display: "flex",
-                                alignItems: "center",
-                                justifyContent: "space-between",
-                                gap: 12,
-                                borderRadius: 12,
-                                background: "#F8FAFC",
-                                padding: "10px 12px",
-                            }}
-                        >
-                            <div>
-                                <div
-                                    style={{
-                                        fontSize: 14,
-                                        fontWeight: 700,
-                                        color: "#111827",
-                                    }}
-                                >
-                                    {item.label}
-                                </div>
-                                <div
-                                    style={{
-                                        marginTop: 2,
-                                        fontSize: 12,
-                                        color: "#6B7280",
-                                    }}
-                                >
-                                    value: {item.value}
-                                </div>
-                            </div>
-
-                            <div
-                                style={{
-                                    fontSize: 13,
-                                    fontWeight: 700,
-                                    color: "#2563EB",
-                                    whiteSpace: "nowrap",
-                                }}
-                            >
-                                {formatPercent(item.score)}
-                            </div>
-                        </div>
-                    ))}
-                </div>
-            )}
-        </div>
-    );
+function formatTextList(values: string[]) {
+  return values.length ? values.join("、") : "-";
 }
 
 export function PreviewPanel({
-    stage,
-    originalUrl,
-    processedUrl,
-    attributes,
-    categoryCandidates,
-    occasionCandidates,
-    seasonCandidates,
-    colorCandidates,
-    isMobile,
+  stage,
+  originalUrl,
+  processedUrl,
+  attributes,
+  categoryCandidates,
+  occasionCandidates,
+  seasonCandidates,
+  colorCandidates,
+  isMobile,
 }: PreviewPanelProps) {
-    return (
-        <aside
-            style={{
-                width: isMobile ? "100%" : 460,
-                flexShrink: 0,
-                display: "grid",
-                gap: 24,
-            }}
-        >
-            <section
-                style={{
-                    background: "#FFFFFF",
-                    border: "1px solid #E5E7EB",
-                    borderRadius: 20,
-                    padding: 24,
-                    boxShadow: "0 8px 30px rgba(15, 23, 42, 0.04)",
-                }}
-            >
-                <BlockTitle
-                    title="3. 預覽"
-                    description="左圖為原始圖片，右圖為目前辨識流程使用的預覽結果。"
-                />
+  return (
+    <section
+      style={{
+        width: isMobile ? "100%" : 360,
+        flexShrink: 0,
+        display: "grid",
+        gap: 24,
+      }}
+    >
+      <section
+        style={{
+          background: "#FFFFFF",
+          border: "1px solid #E5E7EB",
+          borderRadius: 24,
+          padding: 18,
+        }}
+      >
+        <div style={{ fontSize: 18, fontWeight: 800, marginBottom: 10 }}>圖片預覽</div>
 
-                <div
-                    style={{
-                        display: "grid",
-                        gridTemplateColumns: "1fr",
-                        gap: 16,
-                    }}
-                >
-                    <ImagePreviewCard
-                        title="原始圖片"
-                        imageUrl={originalUrl}
-                        emptyText={stage === "idle" ? "尚未上傳圖片" : "處理中…"}
-                    />
-
-                    <ImagePreviewCard
-                        title="處理後預覽"
-                        imageUrl={processedUrl}
-                        emptyText={stage === "predicting" ? "正在產生辨識預覽…" : "尚未產生預覽"}
-                    />
-                </div>
-            </section>
-
-            <section
-                style={{
-                    background: "#FFFFFF",
-                    border: "1px solid #E5E7EB",
-                    borderRadius: 20,
-                    padding: 24,
-                    boxShadow: "0 8px 30px rgba(15, 23, 42, 0.04)",
-                }}
-            >
-                <BlockTitle
-                    title="4. 辨識摘要"
-                    description="顯示目前辨識後的主結果與候選分數，方便快速核對。"
-                />
-
-                <div style={{ display: "grid", gap: 16 }}>
-                    <SummaryValue label="名稱" value={attributes?.latest.name || "—"} />
-                    <SummaryValue
-                        label="主類別"
-                        value={attributes?.categorySelection.selected || "—"}
-                    />
-                    <SummaryValue
-                        label="主場合"
-                        value={
-                            attributes?.occasions.selected.length
-                                ? attributes.occasions.selected.join("、")
-                                : "—"
-                        }
-                    />
-                    <SummaryValue
-                        label="主季節"
-                        value={
-                            attributes?.seasons.selected.length
-                                ? attributes.seasons.selected.join("、")
-                                : "—"
-                        }
-                    />
-                    <SummaryValue
-                        label="主色系"
-                        value={
-                            attributes?.colors.selected.length
-                                ? attributes.colors.selected.join("、")
-                                : "—"
-                        }
-                    />
-                </div>
-            </section>
-
-            <section
-                style={{
-                    display: "grid",
-                    gap: 16,
-                }}
-            >
-                <CandidateList title="類別候選" items={categoryCandidates} />
-                <CandidateList title="場合候選" items={occasionCandidates} />
-                <CandidateList title="季節候選" items={seasonCandidates} />
-
-                <div
-                    style={{
-                        borderRadius: 16,
-                        border: "1px solid #E5E7EB",
-                        background: "#FFFFFF",
-                        padding: 16,
-                    }}
-                >
-                    <div
-                        style={{
-                            marginBottom: 12,
-                            fontSize: 14,
-                            fontWeight: 700,
-                            color: "#111827",
-                        }}
-                    >
-                        色系候選
-                    </div>
-
-                    {colorCandidates.length === 0 ? (
-                        <div
-                            style={{
-                                fontSize: 13,
-                                color: "#6B7280",
-                                lineHeight: 1.6,
-                            }}
-                        >
-                            尚無候選資料
-                        </div>
-                    ) : (
-                        <div style={{ display: "grid", gap: 10 }}>
-                            {colorCandidates.map((item) => (
-                                <ColorCard
-                                    key={`color-${item.value}`}
-                                    label={item.label}
-                                    score={item.score}
-                                />
-                            ))}
-                        </div>
-                    )}
-                </div>
-            </section>
-        </aside>
-    );
-}
-
-function ImagePreviewCard({
-    title,
-    imageUrl,
-    emptyText,
-}: {
-    title: string;
-    imageUrl: string | null;
-    emptyText: string;
-}) {
-    return (
-        <div>
-            <div
-                style={{
-                    marginBottom: 8,
-                    fontSize: 14,
-                    fontWeight: 700,
-                    color: "#111827",
-                }}
-            >
-                {title}
-            </div>
-
-            <div
-                style={{
-                    borderRadius: 18,
-                    border: "1px solid #E5E7EB",
-                    background: "#F8FAFC",
-                    overflow: "hidden",
-                    minHeight: 260,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                }}
-            >
-                {imageUrl ? (
-                    <img
-                        src={imageUrl}
-                        alt={title}
-                        style={{
-                            display: "block",
-                            width: "100%",
-                            height: "100%",
-                            objectFit: "contain",
-                            background: "#FFFFFF",
-                        }}
-                    />
-                ) : (
-                    <div
-                        style={{
-                            padding: 20,
-                            textAlign: "center",
-                            fontSize: 14,
-                            lineHeight: 1.6,
-                            color: "#94A3B8",
-                        }}
-                    >
-                        {emptyText}
-                    </div>
-                )}
-            </div>
-        </div>
-    );
-}
-
-function SummaryValue({ label, value }: { label: string; value: string }) {
-    return (
+        <div style={{ fontSize: 13, color: "#6B7280", marginBottom: 10 }}>原圖</div>
         <div
-            style={{
-                borderRadius: 14,
-                background: "#F8FAFC",
-                border: "1px solid #E2E8F0",
-                padding: 14,
-            }}
+          style={{
+            minHeight: 220,
+            borderRadius: 18,
+            background: "#F8FAFC",
+            border: "1px solid #E5E7EB",
+            overflow: "hidden",
+            display: "grid",
+            placeItems: "center",
+          }}
         >
-            <div
-                style={{
-                    fontSize: 12,
-                    lineHeight: 1.4,
-                    fontWeight: 700,
-                    color: "#64748B",
-                }}
-            >
-                {label}
-            </div>
-
-            <div
-                style={{
-                    marginTop: 6,
-                    fontSize: 14,
-                    lineHeight: 1.6,
-                    color: "#0F172A",
-                    wordBreak: "break-word",
-                }}
-            >
-                {value}
-            </div>
+          {originalUrl ? (
+            <img src={originalUrl} alt="original" style={{ width: "100%", display: "block" }} />
+          ) : (
+            <span style={{ color: "#9CA3AF", fontWeight: 600 }}>尚未選擇圖片</span>
+          )}
         </div>
-    );
+
+        <div style={{ height: 16 }} />
+
+        <div style={{ fontSize: 13, color: "#6B7280", marginBottom: 10 }}>處理後辨識圖</div>
+        <div
+          style={{
+            minHeight: 220,
+            borderRadius: 18,
+            border: "1px solid #E5E7EB",
+            overflow: "hidden",
+            display: "grid",
+            placeItems: "center",
+            background:
+              "linear-gradient(45deg, #f3f4f6 25%, transparent 25%), linear-gradient(-45deg, #f3f4f6 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #f3f4f6 75%), linear-gradient(-45deg, transparent 75%, #f3f4f6 75%)",
+            backgroundSize: "16px 16px",
+            backgroundPosition: "0 0, 0 8px, 8px -8px, -8px 0px",
+          }}
+        >
+          {processedUrl ? (
+            <img src={processedUrl} alt="processed" style={{ width: "100%", display: "block" }} />
+          ) : (
+            <span style={{ color: "#9CA3AF", fontWeight: 600 }}>
+              {stage === "predicting" ? "處理中..." : "尚未產生處理後辨識圖"}
+            </span>
+          )}
+        </div>
+
+        {attributes ? (
+          <div style={{ marginTop: 16, fontSize: 13, color: "#6B7280", lineHeight: 1.7 }}>
+            <div>
+              辨識名稱：<b style={{ color: "#374151" }}>{attributes.latest.name}</b>
+            </div>
+            <div>
+              類別：<b style={{ color: "#374151" }}>{attributes.latest.categoryLabel}</b>
+            </div>
+            <div>
+              場合：<b style={{ color: "#374151" }}>{attributes.legacy.occasion}</b>
+            </div>
+            <div>
+              季節：<b style={{ color: "#374151" }}>{attributes.legacy.season}</b>
+            </div>
+            <div>
+              色系：<b style={{ color: "#374151" }}>{attributes.latest.colorLabel}</b>
+            </div>
+            <div>
+              總分：<b style={{ color: "#374151" }}>{formatPercent(attributes.latest.score)}</b>
+            </div>
+            <div>
+              驗證標籤：<b style={{ color: "#374151" }}>{attributes.latest.validation.bestLabel || "-"}</b>
+              <span style={{ marginLeft: 6 }}>
+                （valid {formatPercent(attributes.latest.validation.validScore)} / invalid {formatPercent(attributes.latest.validation.invalidScore)}）
+              </span>
+            </div>
+            <div>
+              偵測資訊：
+              <b style={{ color: "#374151" }}>
+                {attributes.latest.detected
+                  ? attributes.latest.detectedLabel || "已偵測到衣物區域"
+                  : "未額外偵測"}
+              </b>
+            </div>
+            {attributes.latest.bbox ? (
+              <div>
+                偵測框：
+                <b style={{ color: "#374151" }}>
+                  {formatTextList(attributes.latest.bbox.map((value) => String(value)))}
+                </b>
+              </div>
+            ) : null}
+            <div style={{ marginTop: 10 }}>
+              類別候選：
+              <b style={{ color: "#374151" }}>
+                {categoryCandidates
+                  .slice(0, 2)
+                  .map((item) => `${item.label} ${formatPercent(item.score)}`)
+                  .join("、") || "-"}
+              </b>
+            </div>
+            <div>
+              場合候選：
+              <b style={{ color: "#374151" }}>
+                {occasionCandidates
+                  .slice(0, 2)
+                  .map((item) => `${item.label} ${formatPercent(item.score)}`)
+                  .join("、") || "-"}
+              </b>
+            </div>
+            <div>
+              季節候選：
+              <b style={{ color: "#374151" }}>
+                {seasonCandidates
+                  .slice(0, 2)
+                  .map((item) => `${item.label} ${formatPercent(item.score)}`)
+                  .join("、") || "-"}
+              </b>
+            </div>
+            <div>
+              色系候選：
+              <b style={{ color: "#374151" }}>
+                {colorCandidates
+                  .slice(0, 2)
+                  .map((item) => `${item.label} ${formatPercent(item.score)}`)
+                  .join("、") || "-"}
+              </b>
+            </div>
+          </div>
+        ) : null}
+      </section>
+    </section>
+  );
 }

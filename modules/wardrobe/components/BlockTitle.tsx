@@ -1,36 +1,24 @@
 type BlockTitleProps = {
-    title: string;
-    description?: string;
+  title: string;
+  helper?: string;
 };
 
-export function BlockTitle({ title, description }: BlockTitleProps) {
-    return (
-        <div style={{ marginBottom: 16 }}>
-            <h2
-                style={{
-                    margin: 0,
-                    fontSize: 18,
-                    lineHeight: 1.4,
-                    fontWeight: 700,
-                    color: "#111827",
-                }}
-            >
-                {title}
-            </h2>
-
-            {description ? (
-                <p
-                    style={{
-                        marginTop: 6,
-                        marginBottom: 0,
-                        fontSize: 14,
-                        lineHeight: 1.6,
-                        color: "#6B7280",
-                    }}
-                >
-                    {description}
-                </p>
-            ) : null}
-        </div>
-    );
+export function BlockTitle({ title, helper }: BlockTitleProps) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "baseline",
+        gap: 6,
+        marginBottom: 12,
+      }}
+    >
+      <div style={{ fontSize: 18, fontWeight: 800, color: "#171717", letterSpacing: "0.01em" }}>
+        {title}
+      </div>
+      {helper ? (
+        <div style={{ fontSize: 12, fontWeight: 700, color: "#4b5563" }}>{helper}</div>
+      ) : null}
+    </div>
+  );
 }

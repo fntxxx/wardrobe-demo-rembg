@@ -30,14 +30,22 @@ export default function HomePage() {
     <main
       style={{
         minHeight: "100vh",
-        background: "#F5F7FA",
+        background: "#F7F7F6",
         color: "#111827",
+        padding: isMobile ? "24px 16px 40px" : "36px 28px 56px",
+        fontFamily:
+          "ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
       }}
     >
-      <div style={{ maxWidth: 1320, margin: "0 auto", padding: isMobile ? 18 : 32 }}>
+      <div
+        style={{
+          maxWidth: 1180,
+          margin: "0 auto",
+        }}
+      >
         <SectionTitle
-          title="衣櫥建檔 Demo"
-          subtitle="上傳服飾圖片後，系統會先做去背，再自動辨識類別、場合、季節與色系。你可以直接在右側檢查預覽圖，並在左側調整最終資料。"
+          title="Wardrobe Demo"
+          subtitle="圖片上傳後會先做去背，再使用處理後圖片進行服飾屬性辨識。"
         />
 
         <div
@@ -45,10 +53,19 @@ export default function HomePage() {
             display: "flex",
             flexDirection: isMobile ? "column" : "row",
             gap: 24,
-            alignItems: "flex-start",
+            alignItems: "start",
           }}
         >
-          <div style={{ flex: 1, display: "grid", gap: 24 }}>
+          <section
+            style={{
+              flex: 1,
+              minWidth: 0,
+              background: "#FFFFFF",
+              border: "1px solid #E5E7EB",
+              borderRadius: 24,
+              padding: 18,
+            }}
+          >
             <UploadPanel
               stage={stage}
               isBusy={isBusy}
@@ -63,7 +80,7 @@ export default function HomePage() {
               canEdit={canEdit}
               isMobile={isMobile}
             />
-          </div>
+          </section>
 
           <PreviewPanel
             stage={stage}

@@ -1,90 +1,510 @@
 import { useState } from "react";
 import type {
-    AttributeResult,
-    PredictOptions,
-    PredictResult,
-    ProcessedImageInput,
-} from "@/modules/wardrobe/types/attribute";
+  CategoryValue,
+  OccasionValue,
+  SeasonValue,
+  ColorValue,
+} from "@/lib/wardrobeOptions";
 import {
-    normalizeAttributeErrorMessage,
-    normalizeAttributeResult,
-    normalizePredictPreview,
-    parseAttributesApiResponse,
-} from "@/modules/wardrobe/utils/attributeNormalization";
+  CATEGORY_OPTIONS,
+  OCCASION_OPTIONS,
+  SEASON_OPTIONS,
+  COLOR_OPTIONS,
+} from "@/lib/wardrobeOptions";
+import type {
+  AttributeResult,
+  CandidateItem,
+  PredictOptions,
+  PredictResult,
+  ProcessedImageInput,
+} from "@/modules/wardrobe/types/attribute";
 
-export function useAttributes() {
-    const [attributes, setAttributes] = useState<AttributeResult | null>(null);
-    const [loading, setLoading] = useState(false);
-    const [error, setError] = useState<string | null>(null);
+type ApiErrorPayload = {
+  code: string;
+  message: string;
+  details?: unknown;
+};
 
-    async function predict(
-        input: ProcessedImageInput,
-        filename = "image.png",
-        options: PredictOptions = {}
-    ): Promise<PredictResult | null> {
-        const { silent = false } = options;
+type PredictValidationPayload = {
+  best_label: string;
+  valid_score: number;
+  invalid_score: number;
+};
 
-        if (!silent) {
-            setLoading(true);
-        }
-        setError(null);
+type PredictPreviewPayload = {
+  base64: string;
+  filename: string;
+  mimeType: string;
+};
 
-        try {
-            const body = JSON.stringify({
-                base64: input.base64,
-                filename: input.filename || filename,
-                mimeType: input.mimeType || "image/png",
-            });
+type PredictSuccessData = {
+  route: string;
+  coarseType: string;
+  name: string;
+  category: string;
+  categoryLabel: string;
+  color: string;
+  colorLabel: string;
+  occasion: string[];
+  season: string[];
+  score: number;
+  detected?: boolean;
+  detectedLabel?: string | null;
+  bbox?: number[] | null;
+  validation?: Partial<PredictValidationPayload>;
+  preview?: Partial<PredictPreviewPayload>;
+  scores?: Partial<{
+    mainCategory: number;
+    category: number;
+    occasion: number;
+    color: number;
+    season: number;
+  }>;
+  candidates?: Partial<{
+    category: CandidateItem[];
+    color: CandidateItem[];
+    occasion: CandidateItem[];
+    season: CandidateItem[];
+  }>;
+};
 
-            const res = await fetch("/api/attributes", {
-                method: "POST",
-                body,
-                headers: {
-                    "Content-Type": "application/json",
-                },
-            });
+type RawApiResponse =
+  | { ok: true; data: PredictSuccessData }
+  | { ok: false; error: ApiErrorPayload };
 
-            const text = await res.text();
-            const payload = parseAttributesApiResponse(text);
+const CATEGORY_LABEL_MAP = new Map(
+  CATEGORY_OPTIONS.map((option) => [option.value, option.label])
+);
+const OCCASION_LABEL_MAP = new Map(
+  OCCASION_OPTIONS.map((option) => [option.value, option.label])
+);
+const SEASON_LABEL_MAP = new Map(
+  SEASON_OPTIONS.map((option) => [option.value, option.label])
+);
+const COLOR_LABEL_MAP = new Map(
+  COLOR_OPTIONS.map((option) => [option.value, option.label])
+);
 
-            if (!res.ok || payload.ok === false) {
-                const message = payload.ok === false ? normalizeAttributeErrorMessage(payload.error) : "屬性辨識失敗。";
-                throw new Error(message);
-            }
+const CATEGORY_VALUE_SET = new Set<CategoryValue>(
+  CATEGORY_OPTIONS.map((option) => option.value)
+);
+const OCCASION_VALUE_SET = new Set<OccasionValue>(
+  OCCASION_OPTIONS.map((option) => option.value)
+);
+const SEASON_VALUE_SET = new Set<SeasonValue>(
+  SEASON_OPTIONS.map((option) => option.value)
+);
+const COLOR_VALUE_SET = new Set<ColorValue>(
+  COLOR_OPTIONS.map((option) => option.value)
+);
 
-            const normalizedAttributes = normalizeAttributeResult(payload.data);
-            const preview = normalizePredictPreview(payload.data);
-            const result: PredictResult = {
-                attributes: normalizedAttributes,
-                preview,
-            };
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
 
-            if (!silent) {
-                setAttributes(normalizedAttributes);
-            }
+function isApiErrorPayload(value: unknown): value is ApiErrorPayload {
+  return (
+    isObject(value) &&
+    typeof value.code === "string" &&
+    typeof value.message === "string"
+  );
+}
 
-            return result;
-        } catch (error) {
-            const message = error instanceof Error ? error.message : "屬性辨識失敗。";
+function isCandidateItem(value: unknown): value is CandidateItem {
+  return (
+    isObject(value) &&
+    typeof value.value === "string" &&
+    typeof value.label === "string" &&
+    typeof value.score === "number"
+  );
+}
 
-            if (!silent) {
-                setError(message);
-            }
+function isPredictSuccessData(value: unknown): value is PredictSuccessData {
+  return (
+    isObject(value) &&
+    typeof value.route === "string" &&
+    typeof value.coarseType === "string" &&
+    typeof value.name === "string" &&
+    typeof value.category === "string" &&
+    typeof value.categoryLabel === "string" &&
+    typeof value.color === "string" &&
+    typeof value.colorLabel === "string" &&
+    Array.isArray(value.occasion) &&
+    value.occasion.every((item) => typeof item === "string") &&
+    Array.isArray(value.season) &&
+    value.season.every((item) => typeof item === "string") &&
+    typeof value.score === "number"
+  );
+}
 
-            throw new Error(message);
-        } finally {
-            if (!silent) {
-                setLoading(false);
-            }
-        }
+function parseApiResponse(text: string): RawApiResponse {
+  let json: unknown;
+
+  try {
+    json = JSON.parse(text);
+  } catch {
+    throw new Error("屬性服務回傳格式不是有效 JSON。");
+  }
+
+  if (!isObject(json) || typeof json.ok !== "boolean") {
+    throw new Error("屬性服務回傳格式不符合預期。");
+  }
+
+  if (json.ok === false) {
+    if (!isApiErrorPayload(json.error)) {
+      throw new Error("屬性服務錯誤格式不符合預期。");
     }
 
     return {
-        attributes,
-        loading,
-        error,
-        predict,
-        setAttributes,
-        setError,
+      ok: false,
+      error: json.error,
     };
+  }
+
+  if (!isPredictSuccessData(json.data)) {
+    throw new Error("屬性服務成功回傳格式不符合預期。");
+  }
+
+  return {
+    ok: true,
+    data: json.data,
+  };
+}
+
+function normalizeErrorMessage(error: ApiErrorPayload): string {
+  if (error.message?.trim()) {
+    return error.message.trim();
+  }
+
+  return "屬性辨識失敗。";
+}
+
+function dedupeCandidates<T extends string>(
+  candidates: CandidateItem<T>[]
+): CandidateItem<T>[] {
+  const seen = new Set<string>();
+  const result: CandidateItem<T>[] = [];
+
+  candidates.forEach((candidate) => {
+    if (!candidate.value) {
+      return;
+    }
+
+    if (seen.has(candidate.value)) {
+      return;
+    }
+
+    seen.add(candidate.value);
+    result.push(candidate);
+  });
+
+  return result;
+}
+
+function normalizeCandidateArray<T extends string>(
+  rawCandidates: unknown,
+  valueSet: Set<T>,
+  labelMap: Map<T, string>
+): CandidateItem<T>[] {
+  if (!Array.isArray(rawCandidates)) {
+    return [];
+  }
+
+  const parsed = rawCandidates
+    .filter(isCandidateItem)
+    .map((candidate) => {
+      if (!valueSet.has(candidate.value as T)) {
+        return null;
+      }
+
+      const value = candidate.value as T;
+      return {
+        value,
+        label: candidate.label || labelMap.get(value) || value,
+        score: candidate.score,
+      };
+    })
+    .filter((candidate): candidate is CandidateItem<T> => candidate !== null)
+    .sort((a, b) => b.score - a.score);
+
+  return dedupeCandidates(parsed);
+}
+
+function normalizeCategoryValue(raw: string): CategoryValue {
+  if (CATEGORY_VALUE_SET.has(raw as CategoryValue)) {
+    return raw as CategoryValue;
+  }
+
+  return CATEGORY_OPTIONS[0].value;
+}
+
+function normalizeOccasionValues(raw: string[]): OccasionValue[] {
+  const values = raw.filter((item): item is OccasionValue =>
+    OCCASION_VALUE_SET.has(item as OccasionValue)
+  );
+
+  return values.length ? Array.from(new Set(values)) : [OCCASION_OPTIONS[0].value];
+}
+
+function normalizeSeasonValues(raw: string[]): SeasonValue[] {
+  const values = raw.filter((item): item is SeasonValue =>
+    SEASON_VALUE_SET.has(item as SeasonValue)
+  );
+
+  return values.length ? Array.from(new Set(values)) : [SEASON_OPTIONS[0].value];
+}
+
+function normalizeColorValues(rawColor: string): ColorValue | null {
+  if (COLOR_VALUE_SET.has(rawColor as ColorValue)) {
+    return rawColor as ColorValue;
+  }
+
+  return null;
+}
+
+function normalizeColorSelections(
+  rawColor: string,
+  rawCandidates: unknown
+): {
+  selected: ColorValue[];
+  candidates: CandidateItem<ColorValue>[];
+} {
+  const normalizedCandidates = normalizeCandidateArray(
+    rawCandidates,
+    COLOR_VALUE_SET,
+    COLOR_LABEL_MAP
+  );
+
+  const selectedColor = normalizeColorValues(rawColor);
+
+  if (selectedColor) {
+    return {
+      selected: [selectedColor],
+      candidates:
+        normalizedCandidates.length > 0
+          ? normalizedCandidates
+          : [
+              {
+                value: selectedColor,
+                label: COLOR_LABEL_MAP.get(selectedColor) || selectedColor,
+                score: 1,
+              },
+            ],
+    };
+  }
+
+  return {
+    selected: normalizedCandidates[0] ? [normalizedCandidates[0].value] : [],
+    candidates: normalizedCandidates,
+  };
+}
+
+function buildColorTags(rawColorLabel: string): string[] {
+  if (!rawColorLabel.trim()) {
+    return [];
+  }
+
+  return rawColorLabel
+    .split(/[、,]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function toDataUrl(preview: PredictPreviewPayload): string {
+  return `data:${preview.mimeType};base64,${preview.base64}`;
+}
+
+function normalizePreview(preview: PredictSuccessData["preview"]): PredictResult["preview"] {
+  if (!preview || typeof preview.base64 !== "string" || !preview.base64.trim()) {
+    return null;
+  }
+
+  const filename =
+    typeof preview.filename === "string" && preview.filename.trim()
+      ? preview.filename.trim()
+      : "image.png";
+  const mimeType =
+    typeof preview.mimeType === "string" && preview.mimeType.trim()
+      ? preview.mimeType.trim()
+      : "image/png";
+
+  const normalizedPreview = {
+    base64: preview.base64.trim(),
+    filename,
+    mimeType,
+    dataUrl: "",
+  };
+
+  return {
+    ...normalizedPreview,
+    dataUrl: toDataUrl(normalizedPreview),
+  };
+}
+
+function normalizeAttributes(data: PredictSuccessData): AttributeResult {
+  const category = normalizeCategoryValue(data.category);
+  const categoryCandidates = normalizeCandidateArray(
+    data.candidates?.category,
+    CATEGORY_VALUE_SET,
+    CATEGORY_LABEL_MAP
+  );
+  const occasionValues = normalizeOccasionValues(data.occasion);
+  const occasionCandidates = normalizeCandidateArray(
+    data.candidates?.occasion,
+    OCCASION_VALUE_SET,
+    OCCASION_LABEL_MAP
+  );
+  const seasonValues = normalizeSeasonValues(data.season);
+  const seasonCandidates = normalizeCandidateArray(
+    data.candidates?.season,
+    SEASON_VALUE_SET,
+    SEASON_LABEL_MAP
+  );
+  const normalizedColors = normalizeColorSelections(data.color, data.candidates?.color);
+
+  return {
+    legacy: {
+      category: data.categoryLabel,
+      occasion: data.occasion.join("、"),
+      colorTone: data.colorLabel,
+      colorTags: buildColorTags(data.colorLabel),
+      season: data.season.join("、"),
+    },
+    latest: {
+      route: data.route,
+      coarseType: data.coarseType,
+      name: data.name,
+      category,
+      categoryLabel: data.categoryLabel,
+      color: normalizedColors.selected[0] ?? null,
+      colorLabel: data.colorLabel,
+      occasion: occasionValues,
+      season: seasonValues,
+      score: data.score,
+      detected: Boolean(data.detected),
+      detectedLabel:
+        typeof data.detectedLabel === "string" ? data.detectedLabel : null,
+      bbox: Array.isArray(data.bbox) ? data.bbox.filter((item) => typeof item === "number") : null,
+      validation: {
+        bestLabel: data.validation?.best_label ?? "",
+        validScore: data.validation?.valid_score ?? 0,
+        invalidScore: data.validation?.invalid_score ?? 0,
+      },
+    },
+    categorySelection: {
+      selected: category,
+      label: CATEGORY_LABEL_MAP.get(category),
+      score: data.scores?.category,
+      candidates:
+        categoryCandidates.length > 0
+          ? categoryCandidates
+          : [
+              {
+                value: category,
+                label: data.categoryLabel || CATEGORY_LABEL_MAP.get(category) || category,
+                score: data.scores?.category ?? data.score,
+              },
+            ],
+    },
+    occasions: {
+      selected: occasionValues,
+      candidates: occasionCandidates,
+      threshold: 0.3,
+      maxSelected: 3,
+    },
+    seasons: {
+      selected: seasonValues,
+      candidates: seasonCandidates,
+      threshold: 0.3,
+      maxSelected: 2,
+    },
+    colors: {
+      selected: normalizedColors.selected,
+      candidates: normalizedColors.candidates,
+      threshold: 0.2,
+      maxSelected: 1,
+    },
+    scores: {
+      category: data.scores?.category ?? data.scores?.mainCategory ?? 0,
+      occasion: data.scores?.occasion ?? 0,
+      colorTone: data.scores?.color ?? 0,
+      season: data.scores?.season ?? 0,
+    },
+  };
+}
+
+export function useAttributes() {
+  const [attributes, setAttributes] = useState<AttributeResult | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function predict(
+    input: ProcessedImageInput,
+    filename = "image.png",
+    options: PredictOptions = {}
+  ): Promise<PredictResult | null> {
+    const { silent = false } = options;
+
+    if (!silent) {
+      setLoading(true);
+    }
+    setError(null);
+
+    try {
+      const res = await fetch("/api/attributes", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          base64: input.base64,
+          filename: input.filename || filename,
+          mimeType: input.mimeType || "image/png",
+        }),
+      });
+
+      const text = await res.text();
+      const payload = parseApiResponse(text);
+
+      if (!res.ok || payload.ok === false) {
+        throw new Error(
+          payload.ok === false ? normalizeErrorMessage(payload.error) : "屬性辨識失敗。"
+        );
+      }
+
+      const normalizedAttributes = normalizeAttributes(payload.data);
+      const preview = normalizePreview(payload.data.preview);
+      const result: PredictResult = {
+        attributes: normalizedAttributes,
+        preview,
+      };
+
+      if (!silent) {
+        setAttributes(normalizedAttributes);
+      }
+
+      return result;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "屬性辨識失敗。";
+
+      if (!silent) {
+        setError(message);
+      }
+
+      throw new Error(message);
+    } finally {
+      if (!silent) {
+        setLoading(false);
+      }
+    }
+  }
+
+  return {
+    attributes,
+    loading,
+    error,
+    predict,
+    setAttributes,
+    setError,
+  };
 }
