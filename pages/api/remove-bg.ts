@@ -36,6 +36,7 @@ type ApiEnvelope<T = unknown> =
 const REMBG_BASE =
     process.env.REMBG_API_BASE_URL?.replace(/\/+$/, "") ||
     "https://fntxxx-rembg-service.hf.space";
+const REMBG_API_TOKEN = process.env.REMBG_API_TOKEN;
 
 function buildProxyError(
     code: string,
@@ -157,6 +158,15 @@ export default async function handler(
         }
     }
 
+    if (!REMBG_API_TOKEN) {
+        return res.status(500).json(
+            buildProxyError(
+                "missing_env",
+                "缺少 REMBG_API_TOKEN 環境變數。"
+            )
+        );
+    }
+
     const ip = getClientIp(req);
     const rl = await ratelimit.limit(ip);
     res.setHeader("X-RateLimit-Limit", String(rl.limit));
@@ -197,6 +207,7 @@ export default async function handler(
             body: formData,
             headers: {
                 Accept: "image/png, application/json",
+                Authorization: `Bearer ${REMBG_API_TOKEN}`,
             },
         });
 

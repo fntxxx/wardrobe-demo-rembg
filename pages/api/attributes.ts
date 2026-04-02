@@ -203,6 +203,13 @@ export default async function handler(
             .json(buildProxyError("missing_env", "缺少 FASHION_ATTR_API_URL 環境變數。"));
     }
 
+    const fashionAttrApiToken = process.env.FASHION_ATTR_API_TOKEN;
+    if (!fashionAttrApiToken) {
+        return res
+            .status(500)
+            .json(buildProxyError("missing_env", "缺少 FASHION_ATTR_API_TOKEN 環境變數。"));
+    }
+
     const contentType = req.headers["content-type"] || "";
     if (!contentType.includes("application/json")) {
         return res.status(400).json(
@@ -267,6 +274,7 @@ export default async function handler(
             method: "POST",
             headers: {
                 Accept: "application/json",
+                Authorization: `Bearer ${fashionAttrApiToken}`,
             },
             body: formData,
         });

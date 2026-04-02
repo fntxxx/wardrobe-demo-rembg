@@ -1,40 +1,58 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/pages/api-reference/create-next-app).
+# wardrobe-demo-rembg
+
+這個專案是以 Next.js pages router 建立的 demo，前端瀏覽器只會呼叫本專案自己的 `/api/*` API route，再由 server side API route 代理呼叫上游 FastAPI 服務。
 
 ## Getting Started
 
-First, run the development server:
+1. 安裝依賴：
+
+```bash
+npm install
+```
+
+2. 在專案根目錄建立 `.env.local`，並設定必要環境變數：
+
+```bash
+REMBG_API_BASE_URL=https://your-rembg-service.example.com
+REMBG_API_TOKEN=<your-rembg-api-token>
+FASHION_ATTR_API_URL=https://your-fashion-attr-service.example.com/predict
+FASHION_ATTR_API_TOKEN=<your-fashion-attr-api-token>
+
+# 若你要保留 demo 自身 /api/remove-bg 的 x-api-key 保護，再額外設定
+INTERNAL_API_KEY=<optional-demo-route-key>
+NEXT_PUBLIC_INTERNAL_API_KEY=<optional-demo-route-key>
+```
+
+- `REMBG_API_TOKEN` 與 `FASHION_ATTR_API_TOKEN` 只會在 Next.js server side API route 使用，不可改成 `NEXT_PUBLIC_`。
+- `INTERNAL_API_KEY` / `NEXT_PUBLIC_INTERNAL_API_KEY` 是現有 demo 自身 `/api/remove-bg` 路由保護機制，與上游 FastAPI 的 Bearer Token 是不同層級的設定。
+
+3. 啟動開發伺服器：
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+打開 [http://localhost:3000](http://localhost:3000) 查看結果。
 
-You can start editing the page by modifying `pages/index.tsx`. The page auto-updates as you edit the file.
+## API Proxy Flow
 
-[API routes](https://nextjs.org/docs/pages/building-your-application/routing/api-routes) can be accessed on [http://localhost:3000/api/hello](http://localhost:3000/api/hello). This endpoint can be edited in `pages/api/hello.ts`.
+- Browser → `POST /api/remove-bg` → `rembg-service`
+- Browser → `POST /api/attributes` → `fashion-attr-service`
 
-The `pages/api` directory is mapped to `/api/*`. Files in this directory are treated as [API routes](https://nextjs.org/docs/pages/building-your-application/routing/api-routes) instead of React pages.
-
-This project uses [`next/font`](https://nextjs.org/docs/pages/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn-pages-router) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+上游 Bearer Token 只存在於 `pages/api/remove-bg.ts` 與 `pages/api/attributes.ts` 的 server side `fetch`。
 
 ## Deploy on Vercel
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+請在 Vercel Project Settings → Environment Variables 設定以下敏感環境變數：
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/pages/building-your-application/deploying) for more details.
+- `REMBG_API_BASE_URL`
+- `REMBG_API_TOKEN`
+- `FASHION_ATTR_API_URL`
+- `FASHION_ATTR_API_TOKEN`
+
+若有啟用 demo 自身 `/api/remove-bg` 的 `x-api-key` 保護，再另外設定：
+
+- `INTERNAL_API_KEY`
+- `NEXT_PUBLIC_INTERNAL_API_KEY`
+
+不要把真實 token 寫入版本控制或文件中。
